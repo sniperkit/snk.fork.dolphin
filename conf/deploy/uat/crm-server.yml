@@ -1,0 +1,40 @@
+name: crm-server
+ns: uat
+numOfInstance: 3
+projectType: java
+deployPolicy: inplace
+image: java/crm-server
+resourceRequired: {}
+restartPolicy: onetime
+# updatePolicy, there three different update policies
+#   rollingUpdate: update one instance a time, until all instances are up to date
+#         configformat:  rollingUpdate[[:step]:timeout]
+#          config examples: 
+#             rollingUpdate   rollingUpdate all instances, within default timeout(5m), 
+#                              and every default interval (30s)  trigger one time 
+#             rollingUpdate:10m: rollingUpdate all instances, within 10m, 
+#                              and  every default interval trigger ont time
+#             rollingUpdate:1m:2m  rollingUpdate all instances, within 2m, and  every 1m trigger ont time
+#   deployNew:  deploy new instances according to the deploy config, and leave
+#     current running  process  untouched, until  timeout
+#         config format:  deployNew[[:step]:timeout]
+#         config examples:  
+#             deployNew deployNew instance, and leave old process running forever
+#             deployNew:2h  deployNew instance, 2h later starting to stop old version instances
+#             deployNew:5m:2h  deployNew instances,  2h later starting to stop old version instance 1/5m
+#   mixed:  mix  rollingUpdate and  deployNew,  first start new process, then  rollingUpdate the others, then stopping additional  processes
+#         config format:  mixed[[:n]:timeout]   first start n% percent of the configed processes, and rollingUpdate (1-n%)percet the other processes, after  timeout, starting to stop the old versioned processes
+# 
+# default values:
+#  for service:  default  is NewDeploy
+#  for deamon:  default is  rollingupdate
+#  for onetime script: not used, we would update onetime running scripts
+updatePolicy: rollingUpdate:30s:5m
+selector:
+  "": java
+  host: '!=java-uat'
+  net: outer
+serviceType: service
+values:
+  "133": 123
+  abc: efg
