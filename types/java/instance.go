@@ -7,8 +7,8 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	multierror "github.com/hashicorp/go-multierror"
 	"github.com/shirou/gopsutil/process"
+	ps "we.com/dolphin/process"
 	"we.com/dolphin/types"
 	"we.com/dolphin/types/hostinfo"
 	"we.com/jiabiao/common/probe"
@@ -22,14 +22,14 @@ const (
 
 // InstanceInfo addition instance info
 type InstanceInfo struct {
-	NodeName    string
-	ProbeStatus probe.Result
-	UpdateTime  time.Time
+	NodeName    string       `json:"nodeName,omitempty"`
+	ProbeStatus probe.Result `json:"probeStatus,omitempty"`
+	UpdateTime  time.Time    `json:"updateTime,omitempty"`
 
-	Listening []types.Addr
-	RouteInfo string
+	Listening []types.Addr `json:"listening,omitempty"`
+	RouteInfo string       `json:"routeInfo,omitempty"`
 
-	ServiceType types.ServiceType
+	ServiceType types.ServiceType `json:"serviceType,omitempty"`
 
 	// A pointer to outer common instance info
 	*types.Instance
@@ -48,7 +48,7 @@ func NewInstanceInfo(proc *process.Process) (*types.Instance, error) {
 
 	hostID := hostinfo.GetHostID()
 
-	gi := types.Instance{
+	gi := &types.Instance{
 		ProjecType: Type,
 		ID:         types.InstanceID(fmt.Sprintf("%s-%v", hostID[:7], proc.Pid)),
 		Pid:        int(proc.Pid),
@@ -80,12 +80,17 @@ func NewInstanceInfo(proc *process.Process) (*types.Instance, error) {
 		//	Private interface{} `json:"provite,omitempyt,omitempty"`
 	}
 
+	ii := &InstanceInfo{}
+
 	// update instance info
 	if err = ii.parseInfo(proc); err != nil {
-		merr = multierror.Append(merr, err)
+		return nil, err
 	}
 
-	return nil, nil
+	ii.Instance = gi
+	gi.Private = ii
+
+	return gi, nil
 }
 
 func (ii *InstanceInfo) parseInfo(p *process.Process) error {
@@ -129,14 +134,14 @@ func (ii *InstanceInfo) parseInfo(p *process.Process) error {
 			for {
 				select {
 				case <-tick.C:
-					addrs, err := psm.ListenPortsOfPid(jin.Pid)
+					addrs, err := ps.ListenPortsOfPid(jin.Pid)
 					if err != nil {
-						glog.Warningf("get listening port of %v: %v", pid, err)
+						glog.Warningf("get listening port of %v: %v", jin.Pid, err)
 					}
 					if len(addrs) > 0 {
 						glog.V(10).Infof("process %v listening: %v", jin.Pid, addrs)
 						jin.Listening = addrs
-						jin.ServiceType = core.ServiceService
+						jin.ServiceType = types.ServiceService
 						return
 					}
 				case <-ctx.Done():
@@ -146,6 +151,8 @@ func (ii *InstanceInfo) parseInfo(p *process.Process) error {
 			}
 		}(ii)
 	}
+
+	return nil
 }
 
 // SetGeneralInstance update embeded general instance
@@ -156,4 +163,14 @@ func (ii *InstanceInfo) SetGeneralInstance(i *types.Instance) {
 
 func needGetListenPort(dn types.DeployName) bool {
 	return false
+}
+
+func init() {
+	err := ps.Register(Type, ps.PidType{
+		Typ:  ps.TypPattern,
+		Args: "D",
+	})
+	if err != nil {
+		glog.Fatal(err)
+	}
 }

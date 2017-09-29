@@ -14,9 +14,9 @@ import (
 type Typ string
 
 const (
-	pgrepPattern Typ = "pattern"
-	pgrepExe     Typ = "exe"
-	unknown          = "unknown"
+	TypPattern Typ = "pattern"
+	TypExe     Typ = "exe"
+	unknown        = "unknown"
 )
 
 // PidType  pidtype
@@ -33,24 +33,24 @@ func (pt *PidType) GetRegexp() (*regexp.Regexp, error) {
 var (
 	projectTypeCfg = map[string]PidType{
 		"java": PidType{
-			Typ:  pgrepPattern,
+			Typ:  TypPattern,
 			Args: "Djava.apps.prog",
 		},
 		"nginx": PidType{
-			Typ:  pgrepPattern,
+			Typ:  TypPattern,
 			Args: "nginx: master process",
 		},
 
 		"es": PidType{
-			Typ:  pgrepPattern,
+			Typ:  TypPattern,
 			Args: "org.elasticsearch.bootstrap.Elasticsearch",
 		},
 		"rabbitmq": PidType{
-			Typ:  pgrepPattern,
+			Typ:  TypPattern,
 			Args: "-rabbit plugins_expand_dir",
 		},
 		"redis": PidType{
-			Typ:  pgrepExe,
+			Typ:  TypExe,
 			Args: "redis-server",
 		},
 	}

@@ -22,8 +22,8 @@ import (
 type Typ string
 
 const (
-	pgrepPattern Typ = "pattern"
-	pgrepExe     Typ = "exe"
+	TypPattern Typ = "pattern"
+	TypExe     Typ = "exe"
 	unknown       = "unknown"
 )
 
@@ -45,7 +45,7 @@ func (pt *PidType) GetRegexp() (*regexp.Regexp, error) {
 	}
 
 	exe :=   pt.Args
-	if pt.Typ == pgrepExe {
+	if pt.Typ == TypExe {
 		exe = fmt.Sprintf("^[^\x00]*/?%s$", pt.Args)
 	}
 	pt.re, err := regexp.Compile(exe)
@@ -55,24 +55,24 @@ func (pt *PidType) GetRegexp() (*regexp.Regexp, error) {
 var (
 	projectTypeCfg = map[string]PidType{
 		"java": PidType{
-			Typ:  pgrepPattern,
+			Typ:  TypPattern,
 			Args: "Djava.apps.prog",
 		},
 		"nginx": PidType{
-			Typ:  pgrepPattern,
+			Typ:  TypPattern,
 			Args: "nginx: master process",
 		},
 
 		"es": PidType{
-			Typ:  pgrepPattern,
+			Typ:  TypPattern,
 			Args: "org.elasticsearch.bootstrap.Elasticsearch",
 		},
 		"rabbitmq": PidType{
-			Typ:  pgrepPattern,
+			Typ:  TypPattern,
 			Args: "-rabbit plugins_expand_dir",
 		},
 		"redis": PidType{
-			Typ:  pgrepExe,
+			Typ:  TypExe,
 			Args: "redis-server",
 		},
 	}
@@ -112,12 +112,12 @@ func GetAllPidsOfType(typ string) ([]int, error) {
 	}
 
 	switch pidtype.Typ {
-	case pgrepPattern:
+	case TypPattern:
 		return pidsFromPattern(pidtype.Args)
-	case pgrepExe:
+	case TypExe:
 		return pidsFromExe(pidtype.Args)
 	default:
-		return nil, fmt.Errorf("unknown pidType %v, valid ones: %v, %v", pidtype.Typ, pgrepPattern, pgrepExe)
+		return nil, fmt.Errorf("unknown pidType %v, valid ones: %v, %v", pidtype.Typ, TypPattern, TypExe)
 	}
 }
 
@@ -171,10 +171,10 @@ func PKill(name string, sig syscall.Signal, matchBinOnly bool) error {
 
 	pt := &PidType{
 		re: re,
-		Typ: pgrepPattern
+		Typ: TypPattern
 	}
 	if matchBinOnly {
-		pt.Typ = pgrepExe
+		pt.Typ = TypExe
 	}
 
 	pids := getPids(pt)
@@ -200,10 +200,10 @@ func Pgrep(name string, matchBinOnly bool) ([]int, error) {
 
 	pt := &PidType{
 		re: re,
-		Typ: pgrepPattern
+		Typ: TypPattern
 	}
 	if matchBinOnly {
-		pt.Typ = pgrepExe
+		pt.Typ = TypExe
 	}
 
 
@@ -212,7 +212,7 @@ func Pgrep(name string, matchBinOnly bool) ([]int, error) {
 
 func matchCmdline(cmdline string, pt *PidType) bool {
 	exe := []string{}
-	if pt.Typ ==  pgrepExe {
+	if pt.Typ ==  TypExe {
 		// The bytes we read have '\0' as a separator for the command line
 		parts := bytes.SplitN(cmdline, []byte{0}, 2)
 		if len(parts) == 0 {
