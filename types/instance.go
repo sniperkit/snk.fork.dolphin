@@ -1,0 +1,116 @@
+package types
+
+import (
+	"time"
+)
+
+// LifeCycle  life cycle of  instance
+type LifeCycle string
+
+const (
+	// LCStarting not ready for service
+	LCStarting LifeCycle = "starting"
+	// LCRunning  instance is up
+	LCRunning LifeCycle = "running"
+	// LCStopping instance is schedualed stopping or is stopping
+	LCStopping LifeCycle = "stopping"
+	// LCStopped instance already stopped
+	LCStopped LifeCycle = "stopped"
+)
+
+// ServiceType show the instance is running, a daemon, a service, a onetime script  etc.
+type ServiceType string
+
+const (
+	// ServiceUnknown unknows service type
+	ServiceUnknown ServiceType = "unknown"
+	// ServiceService  service type, which provide a service, others can use
+	ServiceService ServiceType = "service"
+	// ServiceDaemon  long run daemon process
+	ServiceDaemon ServiceType = "daemon"
+	// ServiceScript  short run daemon  process, do not need to restart
+	ServiceScript ServiceType = "script"
+)
+
+// InstanceID instance id
+type InstanceID UUID
+
+// Addr listening addr
+type Addr struct {
+	IP   string
+	Port int
+}
+
+type ConditionType string
+
+const (
+	HighMem        ConditionType = "highMemory"
+	HighCPU        ConditionType = "highCPU"
+	ProbError      ConditionType = "probeError"
+	HighDiskIO     ConditionType = "highDiskIO"
+	HighThreads    ConditionType = "highThreads"
+	ProcessStopped ConditionType = "processStopped"
+)
+
+type Condition struct {
+	Type    ConditionType `json:"type,omitempty"`
+	Message string        `json:"message,omitempty"`
+}
+
+// InstanceResUsage instance resource usage
+type InstanceResUsage struct {
+	Memory         uint64  `json:"memory,omitempty"`
+	CPUTotal       float64 `json:"cpuTotal,omitempty"`
+	CPUPercent     float64 `json:"cpuPercent,omitempty"`
+	Threads        int     `json:"threads,omitempty"`
+	DiskBytesRead  uint64  `json:"diskBytesRead,omitempty"`
+	DiskBytesWrite uint64  `json:"diskBytesWrite,omitempty"`
+}
+
+// InstanceStatus instance prob status
+type InstanceStatus string
+
+const (
+	// InstanceWarning  prob  status warning
+	InstanceWarning InstanceStatus = "warning"
+	// InstanceError prob error
+	InstanceError InstanceStatus = "error"
+	// InstanceSuccess  prob ok
+	InstanceSuccess InstanceStatus = "success"
+	// InstanceUnknown unknwon prob status
+	InstanceUnknown InstanceStatus = "unknown"
+)
+
+// Instance common  instance info
+type Instance struct {
+	// identity
+	ProjecType ProjectType `json:"projectType,omitempty"`
+	ID         InstanceID  `json:"id,omitempty"`
+	Pid        int         `json:"pid,omitempty"`
+	DeployName DeployName  `json:"clusterName,omitempty"`
+
+	// Host info
+	User   string `json:"user,omitempty"`
+	HostID HostID `json:"hostID,omitempty"`
+	Host   string `json:"host,omitempty"`
+	IP     string `json:"ip,omitempty"`
+	Stage  Stage  `json:"stage,omitempty"`
+
+	// Instance info
+	Version    string    `json:"version,omitempty"`
+	StartTime  time.Time `json:"startTime,omitempty"`
+	StopTime   time.Time `json:"stopTime,omitempty"`
+	UpdateTime time.Time `json:"updateTime,omitempty"`
+	LifeCycle  LifeCycle `json:"lifeCycle,omitempty"`
+
+	Listening []Addr `json:"listening,omitempyt,omitempty"`
+
+	// status info
+	Status     InstanceStatus    `json:"status,omitempty"`
+	Conditions []*Condition      `json:"conditions,omitempty"` // error
+	Events     []*Condition      `json:"events,omitempty"`     // warning
+	ResUsage   *InstanceResUsage `json:"resUsage,omitempty"`
+
+	// addional info  of specific type
+	Private interface{} `json:"provite,omitempyt,omitempty"`
+}
