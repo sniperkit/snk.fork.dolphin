@@ -2,52 +2,77 @@ package types
 
 import (
 	"encoding/json"
-	"fmt"
 	"regexp"
 
-	"github.com/blang/semver"
 	"github.com/pkg/errors"
 )
 
 /*
 	deploy has two parts:
-		- the code
-		- the config
+		-  code
+		-  config
 
 	config: is auto generated through  config template
 
 	the code part is called  image
-	the config part is call chartt (k8s.io/helm)
+	the config part is call charts (k8s.io/helm)
+
+	different deployment can use the same image
+
+	conventions:
+		imagename:  java/crm-server:v1.1.1+build.1
+					db/es:v1.3.7
+					db/redis:v2.8.3
+					db/mysql
 */
 
+// ImageUpdatePolicy how to update local image
 type ImageUpdatePolicy string
 
 const (
-	NotExist     ImageUpdatePolicy = "notExist"
+	// NotExist update local image only when its not exists
+	NotExist ImageUpdatePolicy = "notExist"
+	// AlwaysUpdate update local image before every deployment
 	AlwaysUpdate ImageUpdatePolicy = "always"
 )
 
+// ImageName  has not verion info
+type ImageName string
+
+// Validate checks if is a valid image name;
+func (in ImageName) Validate() error {
+	if imageName.MatchString(string(in)) {
+		return nil
+	}
+	return errors.New("invalid imageName")
+}
+
+func (in ImageName) String() string {
+	return string(in)
+}
+
 // Image stand for the code part of a deploy
 type Image struct {
-	Name         string            `json:"name,omitempty"`
-	Version      semver.Version    `json:"version,omitempty"`
+	Name         ImageName         `json:"name,omitempty"`
 	UpdatePolicy ImageUpdatePolicy `json:"updatePolicy,omitempty"`
-	CommitID     string            `json:"commitID,omitempty"`
+	Version      *Version          `json:"version,omitempty"`
 }
 
 var (
-	// imageName have two parts, a namespace and a name
+	// imageName name without version
+	imageName = regexp.MustCompile(`^([a-z]+([.-][a-z]+)*/[a-z]+([.-][a-z]+)*)$`)
+	// image have two parts, a namespace and a name
 	// and can optional have a  semver,  namespace and name must of format ^[a-z]+([.-][a-z]+)*$
-	imageName = regexp.MustCompile(`^([a-z]+([.-][a-z]+)*/[a-z]+([.-][a-z]+)*)(:v([^:]*))?$`)
+	image = regexp.MustCompile(`^([a-z]+([.-][a-z]+)*/[a-z]+([.-][a-z]+)*)(:(v[^:]*))?$`)
 )
 
 //Validate  check is a valid  image
 func (i Image) Validate() error {
-	if !imageName.MatchString(i.Name) {
+	if !image.MatchString(string(i.Name)) {
 		return errors.Errorf("image name format err: %v", i.Name)
 	}
 
-	return i.Version.Validate()
+	return nil
 }
 
 // MarshalJSON json.Marshaler
@@ -56,11 +81,10 @@ func (i Image) MarshalJSON() ([]byte, error) {
 		return nil, err
 	}
 
-	if string(i.UpdatePolicy) == "" && i.CommitID == "" {
-		ret := i.Name
-		v := i.Version.String()
-		if v != "0.0.0" {
-			ret = fmt.Sprintf("%v:v%v", ret, v)
+	if i.UpdatePolicy == "" {
+		ret := string(i.Name)
+		if i.Version != nil {
+			ret += ":" + i.Version.String()
 		}
 		return json.Marshal(ret)
 	}
@@ -82,26 +106,35 @@ func (i *Image) UnmarshalJSON(data []byte) error {
 	}
 
 	type p Image
-
 	return json.Unmarshal(data, (*p)(i))
+}
+
+// MustParseImageName parse image name and  panics when err happends
+func MustParseImageName(name string) *Image {
+	i, err := ParseImageName(name)
+	if err != nil {
+		panic(err)
+	}
+	return i
 }
 
 // ParseImageName  convert an image name to Image struct
 // is name is not valid return err, image is nil
 func ParseImageName(name string) (*Image, error) {
-	part := imageName.FindStringSubmatch(name)
+	part := image.FindStringSubmatch(name)
 	if len(part) != 6 {
 		return nil, errors.Errorf("image name error, got %v", part)
 	}
 
-	n := part[1]
+	n := ImageName(part[1])
 	ver := part[5]
-	var v semver.Version
-	var err error
+
+	var v *Version
 	if len(ver) > 0 {
-		v, err = semver.Parse(ver)
+		var err error
+		v, err = ParseVersion(ver)
 		if err != nil {
-			return nil, errors.Wrap(err, "parse version info")
+			return nil, err
 		}
 	}
 
@@ -109,4 +142,28 @@ func ParseImageName(name string) (*Image, error) {
 		Name:    n,
 		Version: v,
 	}, nil
+}
+
+// Template a unparsed template file
+type Template struct {
+	// Name  path where to store the parsed template
+	Name string
+	// Data tempalte  content
+	Data []byte
+}
+
+// Charts is the config of an image
+type Charts struct {
+	Image       Image
+	keyWords    []string
+	Description string
+	Owner       []string
+	Values      map[string]string
+	Templates   []Template
+}
+
+// LoadCharts given an image name, load charts config of that charts
+func LoadCharts(image *Image) (*Charts, error) {
+
+	return nil, nil
 }

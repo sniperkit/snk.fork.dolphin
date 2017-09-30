@@ -3,6 +3,7 @@ package types
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -10,6 +11,13 @@ import (
 
 	"github.com/pkg/errors"
 	"we.com/jiabiao/common/labels"
+)
+
+const (
+	// all deployments are placed under this folder
+	// into order to ensure all host deploys to the same folder
+	// this value  do not allowed to modify
+	deployBaseDir = "/data/deploy/"
 )
 
 // RestartType when to restart
@@ -144,18 +152,28 @@ var (
 	Until RestartType = "until"
 )
 
+// DeployPolicy how to deploy the image
+// this shoud not changed after deploy take out
+// if really need to change: here is the solution:
+// 		first find host that has not deplyment
+// 		schedual new deployments to those hosts
+// 		then delete old deployment, and clean the deployed dirs
 type DeployPolicy string
 
 const (
 	// Inplace default for java applications
 	Inplace DeployPolicy = "inplace"
-	// ABWorld default for php or web applicatsion
+	// ABWorld default for php or web applicatsion,
+	// this is the prefered choice
 	ABWorld DeployPolicy = "abworld"
 	// Versioned every version has its own folder
 	Versioned DeployPolicy = "versioned"
 )
 
+// DeployName is uniq within a projecttype
 type DeployName UUID
+
+// DeployKey is universally uniq
 type DeployKey UUID
 
 // DeployConfig config  how an project should be deployed
@@ -166,15 +184,17 @@ type DeployConfig struct {
 	ServiceType   ServiceType `json:"serviceType,omitempty"`
 	Stage         Stage       `json:"stage,omitempty"`
 
-	Image        string                 `json:"image,omitempty"`
-	DeployDir    string                 `json:"deployDir,omitempty"`
+	Image     *Image `json:"image,omitempty"`
+	DeployDir string `json:"deployDir,omitempty"`
+	// Values is config map used to render the config files
 	Values       map[string]interface{} `json:"values,omitempty"`
 	DeployPolicy DeployPolicy           `json:"deployPolicy,omitempty"`
 
 	// these fields used to select which hosts can start this project
 	Selector         Selector `json:"selector,omitempty"`
 	selector         labels.Selector
-	ResourceRequired DeployResource `json:"resourceRequired,omitempty"`
+	ResourceQuota    *ResourceSize   `json:"resourceQuota,omitempty"`
+	ResourceRequired *DeployResource `json:"resourceRequired,omitempty"`
 
 	// RestartPolicy action taken, when process exits,
 	// default always restart
@@ -186,11 +206,24 @@ type DeployConfig struct {
 	UpdatePolicy *UpdateOption `json:"updatePolicy,omitempty"`
 }
 
+// GetDeployDir deploy dir
+// for ABWorld:  deployed to GetDeployDir()/[A|B]/
+// for versioned:  deploy to GetDeployDir()/version/
+// for Inplace: deployed to GetDeployDir()/
+func (dc *DeployConfig) GetDeployDir() string {
+	if strings.HasPrefix(dc.DeployDir, deployBaseDir) {
+		return dc.DeployDir
+	}
+
+	return filepath.Join(deployBaseDir, dc.DeployDir)
+}
+
 // GetSelector get host selector
 func (dc *DeployConfig) GetSelector() labels.Selector {
 	return dc.selector
 }
 
+// Key get deployKey of this config
 func (dc *DeployConfig) Key() DeployKey {
 	return DeployKey(fmt.Sprintf("%v/%v", dc.Type, dc.Name))
 }
@@ -242,6 +275,7 @@ type Deployment struct {
 	Host         HostID       `json:"host,omitempty"`
 	HostName     HostName     `json:"hostname,omitempty"`
 	Status       DeployStatus `json:"status,omitempty"`
+	Version      Version      `json:"version,omitempty"`
 	RestartCount int          `json:"restartCount,omitempty"`
 	DeployTime   time.Time    `json:"deployTime,omitempty"`
 	UpdateTime   time.Time    `json:"updateTime,omitempty"`

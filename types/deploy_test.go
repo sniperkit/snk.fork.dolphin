@@ -22,7 +22,7 @@ func TestDeployConfig_Key(t *testing.T) {
 				NumOfInstance: 3,
 				ServiceType:   ServiceService,
 				Stage:         Stage("uat"),
-				Image:         "java/crm-server",
+				Image:         MustParseImageName("java/crm-server"),
 				DeployDir:     "/usr/local/java",
 				Values: map[string]interface{}{
 					"abc": "efg",

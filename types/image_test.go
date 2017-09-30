@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
-
-	"github.com/blang/semver"
 )
 
 func TestParseImageName(t *testing.T) {
@@ -25,7 +23,7 @@ func TestParseImageName(t *testing.T) {
 			},
 			want: &Image{
 				Name:    "java/crm-server",
-				Version: semver.MustParse("1.1.1+buidl10"),
+				Version: MustParseVersion("v1.1.1+buidl10"),
 			},
 			wantErr: false,
 		},
@@ -46,7 +44,7 @@ func TestParseImageName(t *testing.T) {
 			},
 			want: &Image{
 				Name:    "java/crm-server",
-				Version: semver.MustParse("1.1.1"),
+				Version: MustParseVersion("v1.1.1"),
 			},
 			wantErr: false,
 		},
@@ -107,7 +105,7 @@ func TestImage_UnmarshalJSON(t *testing.T) {
 			name: "test1",
 			want: &Image{
 				Name:    "java/crm",
-				Version: semver.MustParse("1.1.1"),
+				Version: MustParseVersion("v1.1.1"),
 			},
 			args:    "\"java/crm:v1.1.1\"",
 			wantErr: false,

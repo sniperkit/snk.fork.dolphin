@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/pkg/errors"
 )
 
 var (
@@ -235,4 +237,49 @@ func ParseResoureValue(res string) (uint64, error) {
 		return 0, fmt.Errorf("unknown unit %v", res)
 	}
 	return uint64(n), nil
+}
+
+// ResourceSize for every projectType there are 3 different scale of
+// predined  ResourceScale:  small, medium, and large
+type ResourceSize string
+
+const (
+	// ScaleSmall use little resource
+	ScaleSmall ResourceSize = "small"
+	// ScaleMedium use medius reource
+	ScaleMedium ResourceSize = "medium"
+	// ScaleLarge  use lots reource
+	ScaleLarge ResourceSize = "large"
+)
+
+// Validate checks if this is a valid resouceSize
+func (rs ResourceSize) Validate() error {
+	switch rs {
+	case ScaleLarge, ScaleMedium, ScaleSmall:
+	default:
+		return errors.Errorf("unknown ResourceSize %v", rs)
+	}
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler
+func (rs ResourceSize) MarshalJSON() ([]byte, error) {
+	if err := rs.Validate(); err != nil {
+		return nil, err
+	}
+	return json.Marshal(rs)
+}
+
+// UnmarshalJSON jons.Unmarshaler
+func (rs *ResourceSize) UnmarshalJSON(data []byte) error {
+	type p ResourceSize
+
+	if err := json.Unmarshal(data, (*p)(rs)); err != nil {
+		return err
+	}
+
+	if err := rs.Validate(); err != nil {
+		return err
+	}
+	return nil
 }
