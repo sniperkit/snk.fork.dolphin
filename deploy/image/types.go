@@ -10,15 +10,15 @@ import (
 
 // Info information of a image
 type Info struct {
-	Name        string    `json:"name,omitempty"`
-	Version     string    `json:"version,omitempty"`
-	CommitID    string    `json:"commitID,omitempty"`
-	CreateDate  time.Time `json:"createDate,omitempty"`
-	Author      string    `json:"author,omitempty"`
-	AuthorDate  time.Time `json:"authorDate,omitempty"`
-	Size        uint64    `json:"site,omitempty"`
-	Msg         string    `json:"msg,omitempty"`
-	DeployCount int       `json:"deployCount,omitempty"`
+	Name        string
+	Version     types.Version
+	CommitID    string
+	CreateDate  time.Time
+	Author      string
+	AuthorDate  time.Time
+	Size        uint64
+	Msg         string
+	DeployCount int
 }
 
 // Manager  manages local images info

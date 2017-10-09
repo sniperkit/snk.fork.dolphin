@@ -20,8 +20,8 @@ import (
 	different deployment can use the same image
 
 	conventions:
-		imagename:  java/crm-server:v1.1.1+build.1
-					db/es:v1.3.7
+		imagename:  java/crm-server:v1.1.1+qa.1
+					db/es:v1.3.7-rc1+prd.1
 					db/redis:v2.8.3
 					db/mysql
 */

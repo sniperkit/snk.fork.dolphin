@@ -15,7 +15,7 @@ type Backuper interface {
 
 type Configer interface {
 	Render() error
-	Test() error
+	Check() error
 }
 
 type Deployer interface {

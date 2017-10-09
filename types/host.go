@@ -83,8 +83,8 @@ func (hi HostInfo) Validate() error {
 		err = multierror.Append(err, terr)
 	}
 
-	if hi.Stage == "" {
-		err = multierror.Append(err, fmt.Errorf("stage cannot be empty"))
+	if hi.Stage > Production || hi.Stage == UnknownStage {
+		err = multierror.Append(err, fmt.Errorf("unknown stage: %v", hi.Stage))
 	}
 
 	return err.ErrorOrNil()

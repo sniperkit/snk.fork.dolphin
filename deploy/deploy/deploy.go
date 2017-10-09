@@ -2,10 +2,10 @@ package deploy
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"time"
 
+	"github.com/pkg/errors"
 	"we.com/dolphin/deploy/image"
 	"we.com/dolphin/types"
 )
@@ -13,10 +13,12 @@ import (
 // manager manages  image deployments
 type manager struct {
 	deployName   types.DeployKey
+	backuper     Backuper
 	imageManager image.Manager
 }
 
 // New create a new manager
+//TODO
 func New() (Deployer, error) {
 
 	return &manager{}, nil
@@ -121,17 +123,59 @@ func (m *manager) imageExist(image *types.Image) error {
 	return err
 }
 
-func (m *manager) checkWorktree(dc *types.DeployConfig) error {
+// assume all version info meet semver v2 format
+// for no production stage: return the latest version, including prerelease version
+// for production stage: return the latest release version
+func getLatestVersion(image types.ImageName, manager image.Manager, production bool) (*types.Version, error) {
+	infs, err := manager.Info(image)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(infs) == 0 {
+		return nil, errors.Errorf("cannot get version info of image:%v", image)
+	}
+
+	if !production {
+		return &infs[len(infs)-1].Version, nil
+	}
+
+	for i := len(infs) - 1; i >= 0; i-- {
+		//if infs[i].Version
+	}
+
+	return nil, nil
+
+}
+
+func getVersion(dc *types.DeployConfig, manager image.Manager) (string, error) {
+	version := dc.Image.Version
+	if version != nil {
+		return version.String(), nil
+	}
+
+	// image deploy has not specify a version
+	// get the last one for current Stage environmet
+
+	return "", nil
+}
+
+// getWorktree returns a worktree to prepare the deploy:
+// the caller should make sure that the needed version of image exists
+// if there is not worktree, create a new one
+// this also respect the deploy policy
+func (m *manager) getWorktree(dc *types.DeployConfig) (image.Worktree, error) {
 	dd := dc.GetDeployDir()
 
 	var name = string(dc.Name)
 	switch dc.DeployPolicy {
 	case types.Inplace:
+		// do nothing
 	case types.ABWorld:
 		// test current is a or b
 		wts, err := m.imageManager.Worktrees(dc.Image.Name)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, v := range wts {
 			if strings.HasPrefix(v, name) {
@@ -140,9 +184,17 @@ func (m *manager) checkWorktree(dc *types.DeployConfig) error {
 		}
 
 	case types.Versioned:
+		ver, err := getVersion(dc)
+		if err != nil {
+			return nil, err
+		}
+		name += dc.Image
 	default:
 		return errors.New("unknown Deploy Policy")
 	}
+}
+
+func (m *manager) checkWorktree(dc *types.DeployConfig) error {
 
 	return nil
 }

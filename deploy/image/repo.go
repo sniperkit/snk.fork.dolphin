@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
-
 	"time"
 
-	"github.com/blang/semver"
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
 	git "gopkg.in/src-d/go-git.v4"
@@ -99,8 +98,23 @@ func (gs *gitStore) List() (Names []types.ImageName, err error) {
 	return ret, nil
 }
 
+type byVersion []Info
+
+func (bv byVersion) Less(i, j int) bool {
+	return !bv[i].Version.LT(bv[j].Version)
+}
+
+func (bv byVersion) Swap(i, j int) {
+	bv[i], bv[j] = bv[j], bv[i]
+}
+
+func (bv byVersion) Len() int {
+	return len(bv)
+}
+
 // Info returns a list of versions, the given image has
 // versions are tags  while meet the semver spec
+// versions are ordered by  version num descending
 func (gs *gitStore) Info(name types.ImageName) ([]Info, error) {
 	if err := name.Validate(); err != nil {
 		return nil, err
@@ -121,14 +135,14 @@ func (gs *gitStore) Info(name types.ImageName) ([]Info, error) {
 	rfs.ForEach(func(v *plumbing.Reference) error {
 		n := v.Name().String()
 		n = strings.TrimLeft(n, "refs/tags/")
-		sv := n[1:]
 		e := Info{
-			Name:     name.String(),
-			Version:  n,
+			Name: name.String(),
+
 			CommitID: v.Hash().String(),
 		}
 		// only tags with semver v2 format
-		if _, err := semver.Parse(sv); err != nil {
+		ver, err := types.ParseVersion(n)
+		if err != nil {
 			return nil
 		}
 		if co, err := r.CommitObject(v.Hash()); err == nil {
@@ -136,13 +150,14 @@ func (gs *gitStore) Info(name types.ImageName) ([]Info, error) {
 			e.Author = co.Author.Name
 			e.AuthorDate = co.Author.When
 			e.Msg = co.Message
+			e.Version = *ver
 		} else {
 			glog.Warningf("git: get commit object of hash: %v, %v", name, e.CommitID)
 		}
-
-		ret = append(ret, e)
 		return nil
 	})
+
+	sort.Sort(byVersion(ret))
 
 	return ret, nil
 }

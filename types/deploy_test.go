@@ -21,7 +21,7 @@ func TestDeployConfig_Key(t *testing.T) {
 				Name:          DeployName("crm-server"),
 				NumOfInstance: 3,
 				ServiceType:   ServiceService,
-				Stage:         Stage("uat"),
+				Stage:         QA,
 				Image:         MustParseImageName("java/crm-server"),
 				DeployDir:     "/usr/local/java",
 				Values: map[string]interface{}{

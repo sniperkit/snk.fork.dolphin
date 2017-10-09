@@ -7,11 +7,15 @@ import (
 	"time"
 
 	"github.com/blang/semver"
+	"github.com/golang/glog"
 	"github.com/pkg/errors"
 )
 
 // Version represent a build version num of an image
 // Version is should meet the semver 2.0 format plus a leading char 'v'
+// A version may have a build tag, specify which stage this version can be deployed to
+// if not build tag, it can be deployed to all version
+// samples: v1.1.1-rc1+qa.1, v1.1.1+prd
 type Version struct {
 	version    semver.Version
 	gitCommit  string
@@ -42,7 +46,7 @@ func (v Version) GetCreateTime() time.Time {
 func MustParseVersion(ver string) *Version {
 	v, err := ParseVersion(ver)
 	if err != nil {
-		panic(err)
+		glog.Fatal(err)
 	}
 
 	return v
@@ -89,4 +93,28 @@ func (v *Version) UnmarshalJSON(data []byte) error {
 // String Stringer
 func (v Version) String() string {
 	return v.version.String()
+}
+
+// LT check v is lt the o
+func (v Version) LT(o Version) bool {
+	return v.version.LT(o.version)
+}
+
+func (v Version) getStage() Stage {
+	b := v.version.Build
+	if len(b) == 0 {
+		return Production
+	}
+
+	var st string
+	if len(b) > 1 {
+		st = b[0]
+	}
+
+	s, err := ParseStage(st)
+	if err != nil {
+		glog.Warningf("Parse version stage error: %v", err)
+	}
+
+	return s
 }
