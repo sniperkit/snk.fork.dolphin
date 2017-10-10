@@ -2,16 +2,19 @@ package deploy
 
 import (
 	"context"
-	"strings"
+	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/pkg/errors"
+	git "gopkg.in/src-d/go-git.v4"
 	"we.com/dolphin/deploy/image"
 	"we.com/dolphin/types"
 )
 
-// manager manages  image deployments
 type manager struct {
+	stage        types.Stage
 	deployName   types.DeployKey
 	backuper     Backuper
 	imageManager image.Manager
@@ -57,10 +60,27 @@ func (m *manager) Deploy(dc *types.DeployConfig) error {
 	}
 
 	// check if local worktree is clean
+	wt, err := m.getWorktree(dc)
+	if err != nil {
+		return err
+	}
 
+	s, err := wt.Status()
+	if err != nil {
+		return err
+	}
+	if !s.IsClean() {
+		return &terror{code: worktreeNotClean}
+	}
 	// generate and check config file
+	if err := m.generateConfig(dc); err != nil {
+		return err
+	}
 
 	// put config and  image file to the desire place
+	if err := wt.Reset(dc.Image.Version.String(), git.HardReset); err != nil {
+		return err
+	}
 
 	// restart/clean cache if needed
 
@@ -115,7 +135,7 @@ func (m *manager) imageExist(image *types.Image) error {
 	}
 
 	for _, vi := range inf {
-		if vi.Version == v.String() {
+		if vi.Version.EQ(v) {
 			return nil
 		}
 	}
@@ -124,9 +144,9 @@ func (m *manager) imageExist(image *types.Image) error {
 }
 
 // assume all version info meet semver v2 format
-// for no production stage: return the latest version, including prerelease version
-// for production stage: return the latest release version
-func getLatestVersion(image types.ImageName, manager image.Manager, production bool) (*types.Version, error) {
+// return last version avaliable for stage
+func getLatestVersion(image types.ImageName, manager image.Manager,
+	stage types.Stage) (*types.Version, error) {
 	infs, err := manager.Info(image)
 	if err != nil {
 		return nil, err
@@ -136,19 +156,16 @@ func getLatestVersion(image types.ImageName, manager image.Manager, production b
 		return nil, errors.Errorf("cannot get version info of image:%v", image)
 	}
 
-	if !production {
-		return &infs[len(infs)-1].Version, nil
-	}
-
 	for i := len(infs) - 1; i >= 0; i-- {
-		//if infs[i].Version
+		if infs[i].Version.GetStage() >= stage {
+			return &infs[i].Version, nil
+		}
 	}
 
 	return nil, nil
-
 }
 
-func getVersion(dc *types.DeployConfig, manager image.Manager) (string, error) {
+func getVersion(dc *types.DeployConfig, manager image.Manager, stage types.Stage) (string, error) {
 	version := dc.Image.Version
 	if version != nil {
 		return version.String(), nil
@@ -157,44 +174,97 @@ func getVersion(dc *types.DeployConfig, manager image.Manager) (string, error) {
 	// image deploy has not specify a version
 	// get the last one for current Stage environmet
 
-	return "", nil
+	v, err := getLatestVersion(dc.Image.Name, manager, stage)
+	if err != nil {
+		return "", err
+	}
+
+	// update dc.Image.Version
+	dc.Image.Version = v
+
+	return v.String(), nil
 }
 
-// getWorktree returns a worktree to prepare the deploy:
+// getWorktree returns a worktree to prepare for the deploy:
 // the caller should make sure that the needed version of image exists
 // if there is not worktree, create a new one
 // this also respect the deploy policy
+// the directory structure for three different deploy policy are same:
+// Inplace:
+//  deployDir/deployName
+// ABWorld:
+// 	deployDir/{deployName-A, deployName-B, deployName}, deployName is a symbolic link to A or B
+// Versioned:
+// 	deployDir/{deployName-Version, deployName}, deployName is a symbolic link to current workdir
 func (m *manager) getWorktree(dc *types.DeployConfig) (image.Worktree, error) {
 	dd := dc.GetDeployDir()
-
 	var name = string(dc.Name)
+
+	ensureWt := func(ctx context.Context, name string, path string) (image.Worktree, error) {
+		wa, err := m.imageManager.Worktree(dc.Image.Name, name)
+		if os.IsNotExist(err) {
+			return m.imageManager.NewWorktree(context.Background(), dc.Image.Name, name, path)
+		}
+		return wa, err
+	}
+
 	switch dc.DeployPolicy {
 	case types.Inplace:
-		// do nothing
+		p := filepath.Join(dd, name)
+		return ensureWt(context.Background(), name, p)
+
 	case types.ABWorld:
 		// test current is a or b
-		wts, err := m.imageManager.Worktrees(dc.Image.Name)
+		a := fmt.Sprintf("%v-A", name)
+		b := fmt.Sprintf("%v-B", name)
+
+		p := filepath.Join(dd, a)
+		wa, err := ensureWt(context.Background(), a, p)
 		if err != nil {
 			return nil, err
 		}
-		for _, v := range wts {
-			if strings.HasPrefix(v, name) {
 
-			}
+		p = filepath.Join(dd, b)
+		wb, err := ensureWt(context.Background(), b, p)
+		if err != nil {
+			return nil, err
 		}
+
+		s := filepath.Join(dd, name)
+		r, err := filepath.EvalSymlinks(s)
+		if err != nil {
+			return nil, err
+		}
+
+		bs := filepath.Base(r)
+		if bs == a {
+			return wb, nil
+		}
+
+		return wa, nil
 
 	case types.Versioned:
-		ver, err := getVersion(dc)
+		ver, err := getVersion(dc, m.imageManager, m.stage)
 		if err != nil {
 			return nil, err
 		}
-		name += dc.Image
+		a := fmt.Sprintf("%v-%v", name, ver)
+
+		p := filepath.Join(dd, a)
+		return ensureWt(context.Background(), a, p)
+
 	default:
-		return errors.New("unknown Deploy Policy")
+		return nil, errors.New("unknown Deploy Policy")
 	}
 }
 
 func (m *manager) checkWorktree(dc *types.DeployConfig) error {
+
+	return nil
+}
+
+// generateConfig generat config based on charts templates
+func (m *manager) generateConfig(dc *types.DeployConfig) error {
 
 	return nil
 }

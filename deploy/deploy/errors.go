@@ -7,6 +7,7 @@ const (
 	imageNotExist
 	imageVersionNotExist
 	imageCanntEmpty
+	worktreeNotClean
 )
 
 var (
@@ -15,6 +16,7 @@ var (
 		imageCanntEmpty:      "image name cannt be empty",
 		imageNotExist:        "image not found",
 		imageVersionNotExist: "image verion does not exist",
+		worktreeNotClean:     "work tree not clean",
 	}
 )
 

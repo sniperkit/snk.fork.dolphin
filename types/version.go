@@ -92,7 +92,7 @@ func (v *Version) UnmarshalJSON(data []byte) error {
 
 // String Stringer
 func (v Version) String() string {
-	return v.version.String()
+	return "v" + v.version.String()
 }
 
 // LT check v is lt the o
@@ -100,7 +100,13 @@ func (v Version) LT(o Version) bool {
 	return v.version.LT(o.version)
 }
 
-func (v Version) getStage() Stage {
+// EQ check if two version are equal
+func (v Version) EQ(o *Version) bool {
+	return v.version.Equals(o.version)
+}
+
+// GetStage which  stage this version can be deployed to
+func (v Version) GetStage() Stage {
 	b := v.version.Build
 	if len(b) == 0 {
 		return Production
