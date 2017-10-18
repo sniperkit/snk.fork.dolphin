@@ -236,7 +236,7 @@ func getEnv() (types.Stage, error) {
 	content, err := ioutil.ReadFile(machineIDFile)
 	if err != nil {
 		glog.Errorf("get stage: %v", err)
-		return types.Stage(""), err
+		return types.UnknownStage, err
 	}
 
 	lines := strings.Split(string(content), "\n")
@@ -244,7 +244,7 @@ func getEnv() (types.Stage, error) {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, prefix) {
 			envStr = strings.TrimPrefix(line, prefix)
-			return types.Stage(envStr), nil
+			return types.ParseStage(envStr)
 		}
 	}
 
@@ -257,10 +257,10 @@ func getEnv() (types.Stage, error) {
 			glog.Errorf("err: %v", err)
 		}
 
-		return types.Stage(envStr), err
+		return types.ParseStage(envStr)
 	}
 
-	return types.Stage("unknown"), nil
+	return types.UnknownStage, nil
 }
 
 // getHostID generate host is not exist, return hostid and err if have one

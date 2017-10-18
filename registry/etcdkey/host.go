@@ -1,5 +1,9 @@
 package etcdkey
 
+/*
+	difference between:  info, config
+*/
+
 import "we.com/dolphin/types"
 
 const (

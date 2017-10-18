@@ -2,7 +2,7 @@ package instances
 
 import (
 	"context"
-	"path/filepath"
+	"os"
 
 	"we.com/dolphin/registry/etcdkey"
 	"we.com/dolphin/registry/generic"
@@ -36,23 +36,36 @@ func (r *Registry) getStore() (generic.Interface, error) {
 
 // GetInstances return a list of Instances(may be stopped), collected from store
 func (r *Registry) GetInstances(key types.DeployKey) ([]*types.Instance, error) {
-	path := etcdkey.DeployActualDir(r.stage)
-	hostids, err := r.store.ListKeys(context.Background(), path)
+	path := etcdkey.DeployInstanceDirOfKey(r.stage, key)
+	ret := []*types.Instance{}
+
+	err := r.store.List(context.Background(), path, generic.Everything, &ret)
 	if err != nil {
 		return nil, err
 	}
 
-	ret := []*types.Instance{}
-	for _, v := range hostids {
-		hostPath := etcdkey.DeployActualDirOfHost(r.stage, types.HostID(v))
-		keyPath := filepath.Join(string(hostPath), string(key))
-		ins := []*types.Instance{}
-		err := r.store.List(context.Background(), keyPath, generic.Everything, &ins)
-		if err != nil {
-			return nil, err
-		}
-		ret = append(ret, ins...)
-	}
-
 	return ret, nil
+}
+
+// SetHostDeploySpecOfKey set host deploy spec of key to spec
+func (r *Registry) SetHostDeploySpecOfKey(hostID types.HostID, key types.DeployKey, spec types.DeploySpec) error {
+	path := etcdkey.DeployHostExpectPathOf(r.stage, hostID, key)
+
+	return r.store.Update(context.Background(), path, spec, nil, 0)
+}
+
+// GetHostDeploySpecOfKey get current host deploy spec of key
+func (r *Registry) GetHostDeploySpecOfKey(hostID types.HostID, key types.DeployKey) (*types.DeploySpec, error) {
+	path := etcdkey.DeployHostExpectPathOf(r.stage, hostID, key)
+
+	ret := types.DeploySpec{}
+
+	err := r.store.Get(context.Background(), path, &ret, false)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &ret, nil
 }

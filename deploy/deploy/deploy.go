@@ -264,6 +264,7 @@ func (m *manager) checkWorktree(dc *types.DeployConfig) error {
 }
 
 // generateConfig generat config based on charts templates
+// TODO
 func (m *manager) generateConfig(dc *types.DeployConfig) error {
 
 	return nil

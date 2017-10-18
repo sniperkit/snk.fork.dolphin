@@ -13,8 +13,8 @@ restartPolicy: onetime
 #             rollingUpdate   rollingUpdate all instances, within default timeout(5m), 
 #                              and every default interval (30s)  trigger one time 
 #             rollingUpdate:10m: rollingUpdate all instances, within 10m, 
-#                              and  every default interval trigger ont time
-#             rollingUpdate:1m:2m  rollingUpdate all instances, within 2m, and  every 1m trigger ont time
+#                              and  every default interval trigger one time
+#             rollingUpdate:1m:2m  rollingUpdate all instances, within 2m, and  every 1m trigger one time
 #   deployNew:  deploy new instances according to the deploy config, and leave
 #     current running  process  untouched, until  timeout
 #         config format:  deployNew[[:step]:timeout]

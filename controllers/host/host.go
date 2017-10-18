@@ -16,6 +16,6 @@ func UpdateHostImages() {
 }
 
 
-func evaluator(hostID types.UUID)  score() {
+func evaluator(hostID types.HostID)  score() {
 	
 }

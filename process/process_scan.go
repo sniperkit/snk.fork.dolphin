@@ -32,6 +32,7 @@ type PidType struct {
 	Typ  Typ
 	Args string
 	re   *regexp.Regexp
+	Parse types.InstanceParser
 }
 
 // GetRegexp get re

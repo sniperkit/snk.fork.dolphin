@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/pkg/errors"
+	"we.com/dolphin/types"
 )
 
 // Typ patten type
@@ -21,8 +22,9 @@ const (
 
 // PidType  pidtype
 type PidType struct {
-	Typ  Typ
-	Args string
+	Typ   Typ
+	Args  string
+	Parse types.InstanceParser
 }
 
 // GetRegexp get re

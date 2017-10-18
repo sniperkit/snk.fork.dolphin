@@ -14,8 +14,9 @@ import (
 
 type ps struct {
 	typeMatch  map[types.ProjectType]*PidType
-	procs      map[int]empty
+	procs      map[int]types.ProjectType
 	types      map[types.ProjectType]map[int]*process.Process
+	ins        map[int]*types.Instance
 	updateTime time.Time
 	lock       sync.RWMutex
 	cacheTime  time.Duration
@@ -41,9 +42,9 @@ func (p *ps) forceUpdate() {
 		glog.Warningf("get ps: %v", err)
 	}
 
-	prcs := make(map[int]empty, len(pids))
+	prcs := make(map[int]types.ProjectType, len(pids))
 	for _, v := range pids {
-		prcs[v] = empty{}
+		prcs[v] = unknown
 	}
 
 	p.procs = prcs
@@ -66,6 +67,7 @@ func (p *ps) classifyProcs() {
 				typmap[pid] = proc
 			}
 			delete(p.procs, pid)
+			delete(p.ins, pid)
 		}
 	}
 
@@ -101,6 +103,7 @@ out:
 			}
 			if matchCmdline(cmdline, v) {
 				typeMap[pid] = proc
+				p.procs[pid] = k
 				continue out
 			}
 		}
@@ -135,6 +138,21 @@ func (p *ps) GetProcsOfType(typ types.ProjectType, forceUpdate bool) (map[int]*p
 	return ret, nil
 }
 
+func (p *ps) getType(pid int) (types.ProjectType, bool) {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
+	t, ok := p.procs[pid]
+	return t, ok
+}
+
+func (p *ps) getInstance(pid int) *types.Instance {
+	p.lock.RLock()
+	defer p.lock.RUnlock()
+	ins := psManager.ins[pid]
+
+	return ins
+}
+
 var (
 	psManager = &ps{}
 )
@@ -142,8 +160,45 @@ var (
 // GetProcsOfType  most of the times, forceUpdate should set to force
 // defaut processes will be cached for cacheTime
 // typ is specified when setup
-func GetProcsOfType(typ types.ProjectType, forceUpdate bool) (map[int]*process.Process, error) {
-	return psManager.GetProcsOfType(typ, forceUpdate)
+func GetProcsOfType(typ types.ProjectType, forceUpdate bool) ([]int, error) {
+	ins, err := psManager.GetProcsOfType(typ, forceUpdate)
+	if err != nil {
+		return nil, err
+	}
+	ret := make([]int, 0, len(ins))
+	for k := range ins {
+		ret = append(ret, k)
+	}
+	return ret, nil
+}
+
+// GetInstance get instance of pid
+func GetInstance(pid int) (*types.Instance, error) {
+	ins := psManager.getInstance(pid)
+	if ins != nil {
+		return ins, nil
+	}
+
+	t, ok := psManager.getType(pid)
+	if !ok {
+		return nil, errors.New("unknown process")
+	}
+
+	parse, ok := psManager.typeMatch[t]
+	if !ok {
+		return nil, errors.Errorf("unknown project type %v when get instance of pid", t)
+	}
+
+	ins, err := parse.Parse.Parse(pid)
+	if err != nil {
+		return nil, err
+	}
+
+	psManager.lock.Lock()
+	defer psManager.lock.Unlock()
+	psManager.ins[pid] = ins
+
+	return ins, nil
 }
 
 // Register  register a project type
@@ -156,6 +211,10 @@ func Register(typ types.ProjectType, pt PidType) error {
 
 	if _, err := pt.GetRegexp(); err != nil {
 		return errors.Wrap(err, "check regexp failed")
+	}
+
+	if pt.Parse == nil {
+		return errors.New("ps: Parse cannot be nil when register")
 	}
 
 	psManager.typeMatch[typ] = &pt

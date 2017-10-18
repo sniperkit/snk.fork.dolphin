@@ -178,11 +178,12 @@ type DeployKey UUID
 
 // DeployConfig config  how an project should be deployed
 type DeployConfig struct {
-	Type          ProjectType `json:"projectType,omitempty"`
-	Name          DeployName  `json:"name,omitempty"` // cluster unique defines an project of type Type
-	NumOfInstance int         `json:"numOfInstance,omitempty"`
-	ServiceType   ServiceType `json:"serviceType,omitempty"`
-	Stage         Stage       `json:"stage,omitempty"`
+	Type                ProjectType `json:"projectType,omitempty"`
+	Name                DeployName  `json:"name,omitempty"` // cluster unique defines an project of type Type
+	NumOfInstance       int         `json:"numOfInstance,omitempty"`
+	ServiceType         ServiceType `json:"serviceType,omitempty"`
+	Stage               Stage       `json:"stage,omitempty"`
+	MaxInstancesPerNode int         `json:"maxInstancesPerNode,omitempty"`
 
 	Image     *Image `json:"image,omitempty"`
 	DeployDir string `json:"deployDir,omitempty"`
@@ -204,6 +205,35 @@ type DeployConfig struct {
 	// for deamon:  default is  rollingupdate
 	// for onetime script: not used, we would update onetime running scripts
 	UpdatePolicy *UpdateOption `json:"updatePolicy,omitempty"`
+}
+
+// GetDeployUpdateOption  return defalut UpdateOption for serviceType
+func GetDefaultUpdateOption(typ ServiceType) *UpdateOption {
+	var upo *UpdateOption
+	switch typ {
+	case ServiceService:
+		upo = &UpdateOption{
+			Policy:  NewDeploy,
+			Step:    30 * time.Second,
+			Timeout: 5 * time.Minute,
+		}
+	case ServiceDaemon, ServiceUnknown:
+		upo = &UpdateOption{
+			Policy:  RollingUpdate,
+			Step:    30 * time.Second,
+			Timeout: 5 * time.Minute,
+		}
+	case ServiceScript:
+		upo = &UpdateOption{
+			Policy:  RollingUpdate,
+			Step:    30 * time.Second,
+			Timeout: 5 * time.Minute,
+		}
+	default:
+		upo = nil
+	}
+
+	return upo
 }
 
 // GetDeployDir deploy dir
@@ -229,12 +259,8 @@ func (dc *DeployConfig) Key() DeployKey {
 }
 
 type DeployVer string
-type DeployVerSpec struct {
-	Num    int
-	Values map[string]string
-}
 type DeploySpec struct {
-	Info map[DeployVer]DeployVerSpec `json:"info,omitempty"`
+	Info map[DeployVer]int `json:"info,omitempty"`
 }
 
 type HostDeployment struct {
@@ -288,7 +314,7 @@ const (
 	// RollingUpdate  update one instance a time, util
 	// all instance are up to date
 	RollingUpdate UpdatePolicyName = "rollingUpdate"
-	// NewDeploy Leave old instance untouched
+	// NewDeploy Leave old instance untouched, need be stopped some time later
 	// schedual a new deployment according to deploy config
 	NewDeploy UpdatePolicyName = "deployNew"
 	// MixedUpdate mix RollingUpdate and NewDeploy:

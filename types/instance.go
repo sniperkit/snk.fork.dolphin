@@ -2,6 +2,8 @@ package types
 
 import (
 	"time"
+
+	"github.com/pkg/errors"
 )
 
 // LifeCycle  life cycle of  instance
@@ -112,5 +114,25 @@ type Instance struct {
 	ResUsage   *InstanceResUsage `json:"resUsage,omitempty"`
 
 	// addional info  of specific type
-	Private interface{} `json:"provite,omitempyt,omitempty"`
+	Private interface{} `json:"private,omitempyt,omitempty"`
+}
+
+// InstanceParser given an pid  parse instanse info  from it command line, env, etc.
+type InstanceParser interface {
+	Parse(pid int) (*Instance, error)
+}
+
+// StopCmdArgs cmd args to send to ctrl script to stop this instance
+func (ins *Instance) StopCmdArgs() [3]string {
+	ret := [3]string{}
+	ret[0] = string(ins.ProjecType)
+	ret[1] = string(ins.DeployName)
+	ret[2] = string(ins.Pid)
+
+	return ret
+}
+
+// UnmarshalJSON disable  UnmarshalJSON
+func (ins *Instance) UnmarshalJSON(data []byte) error {
+	return errors.New("instance should not Unmarshal")
 }

@@ -1,5 +1,23 @@
 package etcdkey
 
+/*
+	deploy info stored in etcd:
+	base:
+		stage/deploy/
+	deploy config:  deploy config of a certain service
+		config/{deployID}
+
+	host deploy config:  instances expected running on a host
+		hosts/{hostID}/{deployID}
+
+	actual deploy:  actual running instances
+		instances/{deployID}/{instanceID}
+
+	agent should watch host deploy config: to start new or stop running instances
+	agent is alse responable for  updat actual deployments, this information is important for
+	replica controller to schedual deployments
+*/
+
 import (
 	"fmt"
 
@@ -10,8 +28,8 @@ const (
 	basedir      = "/dolphin/"
 	deploydir    = "deploy/"
 	deployconfig = "config/"
-	deployExpect = "expect/"
-	deployActual = "actual/"
+	deployExpect = "hosts/"
+	deployActual = "instances/"
 )
 
 // BaseDir returns  etcd base dir
@@ -28,25 +46,29 @@ func DeployDir(stage types.Stage) string {
 }
 
 func DeployConfigDir(stage types.Stage) string {
-	return StageBaseDir(stage) + deployconfig
+	return DeployDir(stage) + deployconfig
 }
 
-func DeployExpectDir(stage types.Stage) string {
-	return StageBaseDir(stage) + deployExpect
+func DeployHostExpectDir(stage types.Stage) string {
+	return DeployDir(stage) + deployExpect
 }
 
-func DeployActualDir(stage types.Stage) string {
-	return StageBaseDir(stage) + deployActual
+func DeployInstanceDir(stage types.Stage) string {
+	return DeployDir(stage) + deployActual
 }
 
 func DepoyConfigOfKey(stage types.Stage, key types.DeployKey) string {
-	return fmt.Sprintf("%v/%v/", DeployConfigDir(stage), key)
+	return fmt.Sprintf("%v%v", DeployConfigDir(stage), key)
 }
 
-func DeployExpectDirOfHost(stage types.Stage, hostID types.HostID) string {
-	return fmt.Sprintf("%v/%v/", DeployExpectDir(stage), hostID)
+func DeployInstanceDirOfKey(stage types.Stage, key types.DeployKey) string {
+	return fmt.Sprintf("%v%v/", DeployInstanceDir(stage), key)
 }
 
-func DeployActualDirOfHost(stage types.Stage, hostID types.HostID) string {
-	return fmt.Sprintf("%v/%v/", DeployActualDir(stage), hostID)
+func DeployHostExpectDirOf(stage types.Stage, hostID types.HostID) string {
+	return fmt.Sprintf("%v%v/", DeployHostExpectDir(stage), hostID)
+}
+
+func DeployHostExpectPathOf(stage types.Stage, hostID types.HostID, key types.DeployKey) string {
+	return fmt.Sprintf("%v%v", DeployHostExpectDirOf(stage, hostID), key)
 }

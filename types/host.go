@@ -20,10 +20,10 @@ var (
 type HostConfig struct {
 	HostName string `json:"hostName,omitempty"`
 
-	Stage           Stage             `json:"stage,omitempty"`
-	Labels          map[string]string `json:"labels,omitempty"` // labels are used as selectors
-	ReportTags      map[string]string `json:"reportTags,omitempty"`
-	Resourcereserve DeployResource    `json:"resourcereserve,omitempty"`
+	Stage            Stage             `json:"stage,omitempty"`
+	Labels           map[string]string `json:"labels,omitempty"` // labels are used as selectors
+	ReportTags       map[string]string `json:"reportTags,omitempty"`
+	ResourceReserved DeployResource    `json:"resourceReserved,omitempty"`
 }
 
 // HostCondition  host condition happing
@@ -72,7 +72,8 @@ type HostInfo struct {
 	OuterIPs  map[string]string    `json:"outerIPs,omitempty"`
 	Services  []string             `json:"services,omitempty"`
 
-	UpdateTime time.Time `json:"updateTime,omitempty"`
+	UpdateTime       time.Time      `json:"updateTime,omitempty"`
+	ResourceReserved DeployResource `json:"resourceReserved,omitempty"`
 }
 
 // Validate  check if the hi is valid,  if not err is not nil
@@ -127,7 +128,7 @@ func (hn HostName) Validate() error {
 // HostStatus runtime host status
 // Tags are set by users, annotations are used internally
 type HostStatus struct {
-	HostInfo   *HostInfo `json:"hostInfo,omitempty"`
+	HostInfo   *HostInfo `json:"-"`
 	UpdateTime time.Time `json:"updateTime,omitempty"`
 
 	Load1    float64 `json:"load1,omitempty"`
@@ -135,6 +136,7 @@ type HostStatus struct {
 	Load15   float64 `json:"load15,omitempty"`
 	CPUUsage float64 `json:"cpuUsage,omitempty"`
 
+	UsedMemory   uint64
 	FreeMemory   uint64 `json:"freeMemory,omitempty"`
 	CachedMemory uint64 `json:"cachedMemory,omitempty"`
 	FreeSwap     uint64 `json:"freeSwap,omitempty"`
@@ -142,11 +144,43 @@ type HostStatus struct {
 	Sout         uint64 `json:"out,omitempty"`
 
 	BandWidthUsage map[string]NetIOStat `json:"netStat,omitempty"`
-
-	DiskStat map[string]DiskStat `json:"diskStat,omitempty"`
+	DiskStat       map[string]DiskStat  `json:"diskStat,omitempty"`
 
 	NumOfThreads   int `json:"numOfThreads,omitempty"`
 	NumofProcesses int `json:"numOfProcesses,omitempty"`
+}
+
+// ResourceUsed to  DeployResource
+func (hs *HostStatus) ResourceUsed() *DeployResource {
+	if hs == nil {
+		return nil
+	}
+
+	ni := uint64(0)
+	no := uint64(0)
+
+	diskSp := uint64(0)
+
+	ret := &DeployResource{
+		Memory:     hs.UsedMemory,
+		CPU:        uint64(hs.CPUUsage * float64(uint64(hs.NumofProcesses)*CPUUnit)),
+		NetworkIn:  ni,
+		NetworkOut: no,
+		DiskSpace:  diskSp,
+	}
+
+	return ret
+}
+
+// Condition  evaluate host Condition
+func (hs *HostStatus) Condition() HostCondition {
+	if hs == nil {
+		return HostHealthy
+	}
+
+	// if load
+
+	return HostHealthy
 }
 
 // DiskStat  disk partition stat

@@ -155,10 +155,13 @@ func (ii *InstanceInfo) parseInfo(p *process.Process) error {
 	return nil
 }
 
-// SetGeneralInstance update embeded general instance
-func (ii *InstanceInfo) SetGeneralInstance(i *types.Instance) {
-	ii.Instance = i
-	i.Private = ii
+type parse struct {
+}
+
+func (p *parse) Parse(pid int) (*types.Instance, error) {
+	proc := process.NewProcess(int32(pid))
+
+	return NewInstanceInfo(proc)
 }
 
 func needGetListenPort(dn types.DeployName) bool {
@@ -167,8 +170,9 @@ func needGetListenPort(dn types.DeployName) bool {
 
 func init() {
 	err := ps.Register(Type, ps.PidType{
-		Typ:  ps.TypPattern,
-		Args: "D",
+		Typ:   ps.TypPattern,
+		Args:  "D",
+		Parse: &parse{},
 	})
 	if err != nil {
 		glog.Fatal(err)
