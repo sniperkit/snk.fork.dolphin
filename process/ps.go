@@ -223,7 +223,11 @@ func (p *ps) GetDeployedProjectTypes() (map[types.ProjectType]struct{}, error) {
 }
 
 var (
-	psManager = &ps{}
+	psManager = &ps{
+		typeInfo:  map[types.ProjectType]*PidType{},
+		instances: map[types.DeployKey]map[int]*types.Instance{},
+		processes: map[int]*process.Process{},
+	}
 )
 
 // Metric  process metric
