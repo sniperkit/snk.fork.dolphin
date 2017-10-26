@@ -1,6 +1,7 @@
 package ps
 
 import (
+	"context"
 	"os"
 	"sync"
 	"syscall"
@@ -10,18 +11,19 @@ import (
 	"github.com/pkg/errors"
 	"github.com/shirou/gopsutil/process"
 	"we.com/dolphin/types"
+	"we.com/jiabiao/common/probe"
 )
 
 type ps struct {
-	typeMatch  map[types.ProjectType]*PidType
-	procs      map[int]types.ProjectType
-	types      map[types.ProjectType]map[int]*process.Process
-	ins        map[int]*types.Instance
+	typeInfo map[types.ProjectType]*PidType
+
+	instances map[types.DeployKey]map[int]*types.Instance
+	processes map[int]*process.Process
+
 	updateTime time.Time
 	lock       sync.RWMutex
 	cacheTime  time.Duration
 }
-type empty struct{}
 
 func (p *ps) update(force bool) {
 	if p.updateTime.Add(p.cacheTime).After(time.Now()) && !force {
@@ -37,49 +39,52 @@ func (p *ps) update(force bool) {
 
 // forceUpdate all running process
 func (p *ps) forceUpdate() {
-	pids, err := Pgrep(".", false)
-	if err != nil {
-		glog.Warningf("get ps: %v", err)
-	}
+	pids := GetAllPids()
 
-	prcs := make(map[int]types.ProjectType, len(pids))
+	pidMap := make(map[int]struct{}, len(pids))
 	for _, v := range pids {
-		prcs[v] = unknown
+		pidMap[v] = struct{}{}
 	}
 
-	p.procs = prcs
-	p.updateTime = time.Now()
+	p.classifyProcs(pidMap)
+}
 
-	p.classifyProcs()
+func processStopped(pid int) bool {
+	p, _ := os.FindProcess(pid)
+	err := p.Signal(syscall.Signal(0))
+	return err != nil
 }
 
 // caller should hold the lock
-func (p *ps) classifyProcs() {
-	types := map[types.ProjectType]map[int]*process.Process{}
-
-	for k, v := range p.types {
-		typmap := map[int]*process.Process{}
-		types[k] = typmap
-		for pid, proc := range v {
-			// TODO(jiabiao): better way to test process still running?
-			err := proc.SendSignal(syscall.Signal(0))
-			if err == nil {
-				typmap[pid] = proc
+func (p *ps) classifyProcs(pidMap map[int]struct{}) {
+	// clean stopped processes
+	// https://stackoverflow.com/questions/11323410/linux-pid-recycling
+	// todo: process pid stopped, and then a new process with pid start
+	for k, dmap := range p.instances {
+		for pid := range dmap {
+			if processStopped(pid) {
+				delete(p.processes, pid)
+				delete(dmap, pid)
+			} else {
+				delete(pidMap, pid)
 			}
-			delete(p.procs, pid)
-			delete(p.ins, pid)
+		}
+		if len(dmap) == 0 {
+			delete(p.instances, k)
 		}
 	}
 
-	unknownMap, ok := types[unknown]
+	unknownMap, ok := p.instances[unknown]
 	if !ok {
-		unknownMap = map[int]*process.Process{}
-		types[unknown] = unknownMap
+		unknownMap = map[int]*types.Instance{}
+		p.instances[unknown] = unknownMap
 	}
+
+	instances := p.instances
 
 	// new started process
 out:
-	for pid := range p.procs {
+	for pid := range pidMap {
 		proc, err := process.NewProcess(int32(pid))
 		if os.IsNotExist(err) {
 			continue
@@ -95,42 +100,58 @@ out:
 			continue
 		}
 
-		for k, v := range p.typeMatch {
-			typeMap, ok := types[k]
-			if !ok {
-				typeMap = map[int]*process.Process{}
-				types[k] = typeMap
+		for _, v := range p.typeInfo {
+			if !matchCmdline([]byte(cmdline), v) {
+				continue // continue inner loop
 			}
-			if matchCmdline(cmdline, v) {
-				typeMap[pid] = proc
-				p.procs[pid] = k
+
+			ins, err := v.Parse.Parse(pid)
+			if err != nil {
+				glog.Errorf("ps: parse process instance: %v", err)
 				continue out
 			}
+
+			key := ins.DeployKey()
+
+			insMap, ok := instances[key]
+			if !ok {
+				insMap = map[int]*types.Instance{}
+				instances[key] = insMap
+			}
+
+			insMap[pid] = ins
+			p.processes[pid] = proc
+			continue out
 		}
-		unknownMap[pid] = proc
+		unknownMap[pid] = nil
+		p.processes[pid] = proc
 	}
 
-	p.types = types
+	p.instances = instances
 }
 
-// GetProcsOfType returns process of typ
-func (p *ps) GetProcsOfType(typ types.ProjectType, forceUpdate bool) (map[int]*process.Process, error) {
+// GetInstanceOfDeploy returns process of key
+func (p *ps) GetInstanceOfDeploy(key types.DeployKey, forceUpdate bool) (map[int]*types.Instance, error) {
 	// update if  needed
 	p.update(forceUpdate)
 
 	p.lock.RLock()
 	defer p.lock.RUnlock()
 
-	tmp, ok := p.types[typ]
+	tmp, ok := p.instances[key]
 	if !ok {
-		if _, ok := p.typeMatch[typ]; !ok {
+		typ, _, err := types.ParseDeployKey(key)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := p.typeInfo[typ]; !ok {
 			return nil, errors.New("unknown typ")
 		}
 
 		return nil, nil
 	}
 
-	ret := make(map[int]*process.Process, len(tmp))
+	ret := make(map[int]*types.Instance, len(tmp))
 	for k, v := range tmp {
 		ret[k] = v
 	}
@@ -138,74 +159,194 @@ func (p *ps) GetProcsOfType(typ types.ProjectType, forceUpdate bool) (map[int]*p
 	return ret, nil
 }
 
-func (p *ps) getType(pid int) (types.ProjectType, bool) {
+func (p *ps) GetDeployKeys() map[types.DeployKey]struct{} {
+	// update if  needed
+	p.update(false)
+
 	p.lock.RLock()
 	defer p.lock.RUnlock()
-	t, ok := p.procs[pid]
-	return t, ok
+	ret := make(map[types.DeployKey]struct{}, len(p.instances))
+
+	for k := range p.instances {
+		ret[k] = struct{}{}
+	}
+
+	return ret
 }
 
-func (p *ps) getInstance(pid int) *types.Instance {
+func (p *ps) GetInstanceOfType(typ types.ProjectType) (map[int]*types.Instance, error) {
+	// update if  needed
+	p.update(false)
+
 	p.lock.RLock()
 	defer p.lock.RUnlock()
-	ins := psManager.ins[pid]
 
-	return ins
+	ret := make(map[int]*types.Instance)
+
+	for key, v := range p.instances {
+		if key == unknown {
+			continue
+		}
+		t, _, err := types.ParseDeployKey(key)
+		if err != nil {
+			return nil, err
+		}
+		if typ != t {
+			continue
+		}
+		for pid, i := range v {
+			ret[pid] = i
+		}
+	}
+
+	return ret, nil
+}
+
+func (p *ps) GetDeployedProjectTypes() (map[types.ProjectType]struct{}, error) {
+	// update if  needed
+	p.update(false)
+	ret := map[types.ProjectType]struct{}{}
+	p.lock.RLock()
+	defer p.lock.RUnlock()
+	for key := range p.instances {
+		if key == unknown {
+			continue
+		}
+		t, _, err := types.ParseDeployKey(key)
+		if err != nil {
+			return nil, err
+		}
+
+		ret[t] = struct{}{}
+	}
+	return ret, nil
 }
 
 var (
 	psManager = &ps{}
 )
 
-// GetProcsOfType  most of the times, forceUpdate should set to force
-// defaut processes will be cached for cacheTime
-// typ is specified when setup
-func GetProcsOfType(typ types.ProjectType, forceUpdate bool) ([]int, error) {
-	ins, err := psManager.GetProcsOfType(typ, forceUpdate)
-	if err != nil {
-		return nil, err
-	}
-	ret := make([]int, 0, len(ins))
-	for k := range ins {
-		ret = append(ret, k)
-	}
-	return ret, nil
+// Metric  process metric
+type Metric struct {
+	Name   string
+	Fields map[string]interface{}
+	Tags   map[string]string
+	Time   time.Time
 }
 
-// GetInstance get instance of pid
-func GetInstance(pid int) (*types.Instance, error) {
-	ins := psManager.getInstance(pid)
-	if ins != nil {
-		return ins, nil
-	}
-
-	t, ok := psManager.getType(pid)
-	if !ok {
-		return nil, errors.New("unknown process")
-	}
-
-	parse, ok := psManager.typeMatch[t]
-	if !ok {
-		return nil, errors.Errorf("unknown project type %v when get instance of pid", t)
-	}
-
-	ins, err := parse.Parse.Parse(pid)
+// GetInstanceOfDeploy  most of the times, forceUpdate should set to force
+// defaut processes will be cached for cacheTime
+// typ is specified when setup
+func GetInstanceOfDeploy(key types.DeployKey, forceUpdate bool) (map[int]*types.Instance, error) {
+	ins, err := psManager.GetInstanceOfDeploy(key, forceUpdate)
 	if err != nil {
 		return nil, err
 	}
 
-	psManager.lock.Lock()
-	defer psManager.lock.Unlock()
-	psManager.ins[pid] = ins
-
 	return ins, nil
+}
+
+// GetInstanceOfType return instances of the given type
+func GetInstanceOfType(typ types.ProjectType) (map[int]*types.Instance, error) {
+	return psManager.GetInstanceOfType(typ)
+}
+
+// GetDeployKeys return all  running deployKeys on this host
+func GetDeployKeys() map[types.DeployKey]struct{} {
+	return psManager.GetDeployKeys()
+}
+
+// GetDeployedProjectTypes return all projectType running on this host
+func GetDeployedProjectTypes() (map[types.ProjectType]struct{}, error) {
+	return psManager.GetDeployedProjectTypes()
+}
+
+// ProcessResource get process resource usage info
+func ProcessResource(ins *types.Instance) (*ProcessState, error) {
+	if ins == nil {
+		return nil, nil
+	}
+
+	psManager.lock.RLock()
+	proc, ok := psManager.processes[ins.Pid]
+	psManager.lock.RUnlock()
+
+	if !ok {
+		return nil, errors.New("process does not exist")
+	}
+
+	return getProcessState(proc), nil
+}
+
+// Probe checks process resouce usage, and probe instance status through the given probe method
+func Probe(ins *types.Instance, st *ProcessState, resReq *types.DeployResource) (conditions []*types.Condition, events []*types.Condition, err error) {
+	if ins == nil {
+		return nil, nil, nil
+	}
+
+	typ := ins.ProjecType
+	pt, ok := psManager.typeInfo[typ]
+	if !ok {
+		return nil, nil, errors.Errorf("unknown procees type %v", typ)
+	}
+
+	conditions, events, err = st.check(resReq)
+	if err != nil {
+		return
+	}
+
+	if pt.Prober == nil {
+		return
+	}
+
+	result, err := pt.Prober.Probe(ins)
+	if result == probe.Success {
+		return
+	}
+
+	cond := &types.Condition{
+		Type:    types.ProbeCondition,
+		Message: "probe status  failuer",
+	}
+
+	if result == probe.Failure {
+		conditions = append(conditions, cond)
+		return
+	}
+
+	if result == probe.Warning {
+		events = append(events, cond)
+		return
+	}
+
+	return nil, nil, nil
+}
+
+// Stop call stop  script to stop an instance
+// it will make sure the process is stopped
+func Stop(ctx context.Context, ins *types.Instance) {
+	args := ins.StopCmdArgs()
+	stop(ctx, args[:], nil)
+	p, _ := os.FindProcess(ins.Pid)
+	p.Kill()
+}
+
+// Start starts a new instance of key
+func Start(ctx context.Context, key types.DeployKey) error {
+	args := []string{string(key)}
+
+	//todo: get the pid of new started service
+	// throught pid file ?
+	err := start(ctx, args, nil)
+
+	return err
 }
 
 // Register  register a project type
 func Register(typ types.ProjectType, pt PidType) error {
 	psManager.lock.Lock()
 	defer psManager.lock.Unlock()
-	if _, ok := psManager.typeMatch[typ]; ok {
+	if _, ok := psManager.typeInfo[typ]; ok {
 		return errors.New("project type already exists")
 	}
 
@@ -217,7 +358,7 @@ func Register(typ types.ProjectType, pt PidType) error {
 		return errors.New("ps: Parse cannot be nil when register")
 	}
 
-	psManager.typeMatch[typ] = &pt
+	psManager.typeInfo[typ] = &pt
 
 	return nil
 }

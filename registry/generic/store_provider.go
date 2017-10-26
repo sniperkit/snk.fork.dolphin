@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"sync"
 
-	"we.com/jiabiao/common/etcd"
-
 	"github.com/coreos/etcd/clientv3"
 	"github.com/golang/glog"
 	"golang.org/x/net/context"
@@ -43,15 +41,25 @@ func IsInitialized() bool {
 	return clientConfig != nil
 }
 
+// SetEtcdConfigFile first load config from  file and then set etcd config
+func SetEtcdConfigFile(file string) error {
+	cfg, err := NewEtcdConfig(file)
+	if err != nil {
+		err := fmt.Errorf("load etcd config err: %v", err)
+		glog.Fatalf("%v", err)
+	}
+	SetEtcdConfig(cfg)
+	return nil
+}
+
 // SetEtcdConfig  set etcd config, this function can only called once at the server start time
-func SetEtcdConfig(cfg etcd.Config) {
+func SetEtcdConfig(cfg clientv3.Config) {
 	if clientConfig != nil {
 		glog.Fatalf("set etcd config, config is not empty")
 	}
 	cliLock.Lock()
 	defer cliLock.Unlock()
-	ncfg := clientv3.Config(cfg)
-	clientConfig = &ncfg
+	clientConfig = &cfg
 }
 
 // GetStoreInstance returns an Instance of store, or err if config is ni or error happens when create a new etcd client

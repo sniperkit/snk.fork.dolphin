@@ -18,12 +18,14 @@ var (
 
 // HostConfig  host config infos
 type HostConfig struct {
-	HostName string `json:"hostName,omitempty"`
+	HostName   string `json:"hostName,omitempty"`
+	DataCenter string `json:"dc,omitempty"`
 
-	Stage            Stage             `json:"stage,omitempty"`
-	Labels           map[string]string `json:"labels,omitempty"` // labels are used as selectors
-	ReportTags       map[string]string `json:"reportTags,omitempty"`
-	ResourceReserved DeployResource    `json:"resourceReserved,omitempty"`
+	StopUnmanagedInstances bool              `json:"stopUnmanagedInstances,omitempty"`
+	Stage                  Stage             `json:"stage,omitempty"`
+	Labels                 map[string]string `json:"labels,omitempty"` // labels are used as selectors
+	ReportTags             map[string]string `json:"reportTags,omitempty"`
+	ResourceReserved       DeployResource    `json:"resourceReserved,omitempty"`
 }
 
 // HostCondition  host condition happing

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
 	"we.com/dolphin/types"
 )
 
@@ -19,12 +20,14 @@ var (
 )
 
 // Check  check process resource usage
-func (ps *ProcessState) Check(dc *types.DeployConfig) (conditions, events []*types.Condition) {
+func (ps *ProcessState) check(resReq *types.DeployResource) (conditions, events []*types.Condition, err error) {
 	if ps == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 
-	resReq := dc.ResourceRequired
+	if resReq == nil {
+		return nil, nil, errors.New("ps: check require resource is nil")
+	}
 
 	resAct := &types.InstanceResUsage{
 		Memory:         ps.MemInfo.RSS,

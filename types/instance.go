@@ -1,9 +1,12 @@
 package types
 
 import (
+	"fmt"
 	"time"
 
+	"github.com/pborman/uuid"
 	"github.com/pkg/errors"
+	"we.com/jiabiao/common/probe"
 )
 
 // LifeCycle  life cycle of  instance
@@ -52,6 +55,7 @@ const (
 	HighDiskIO     ConditionType = "highDiskIO"
 	HighThreads    ConditionType = "highThreads"
 	ProcessStopped ConditionType = "processStopped"
+	ProbeCondition ConditionType = "probe"
 )
 
 type Condition struct {
@@ -117,9 +121,20 @@ type Instance struct {
 	Private interface{} `json:"private,omitempyt,omitempty"`
 }
 
+// DeployKey deploy key of this instance
+func (ins *Instance) DeployKey() DeployKey {
+
+	return DeployKey(fmt.Sprintf("%v/%v", ins.ProjecType, ins.DeployName))
+}
+
 // InstanceParser given an pid  parse instanse info  from it command line, env, etc.
 type InstanceParser interface {
 	Parse(pid int) (*Instance, error)
+}
+
+// Prober an instance prober
+type Prober interface {
+	Probe(ins *Instance) (probe.Result, error)
 }
 
 // StopCmdArgs cmd args to send to ctrl script to stop this instance
@@ -135,4 +150,10 @@ func (ins *Instance) StopCmdArgs() [3]string {
 // UnmarshalJSON disable  UnmarshalJSON
 func (ins *Instance) UnmarshalJSON(data []byte) error {
 	return errors.New("instance should not Unmarshal")
+}
+
+// NewInstanceID create an new instanceID before instance start
+func NewInstanceID() InstanceID {
+	uid := uuid.New()
+	return InstanceID(uid)
 }

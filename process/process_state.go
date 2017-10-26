@@ -1,8 +1,10 @@
 package ps
 
 import (
+	"syscall"
 	"time"
 
+	"github.com/golang/glog"
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/shirou/gopsutil/cpu"
 	"github.com/shirou/gopsutil/net"
@@ -27,11 +29,35 @@ type ProcessState struct {
 	CPUInfo   cpu.TimesStat
 }
 
-// CalProcessState get common state and metric of a process
-func CalProcessState(proc *process.Process) (ps *ProcessState) {
-	if proc == nil {
-		return
+// CalProcessState cal process stats
+func CalProcessState(c <-chan time.Time, pid int) (<-chan *ProcessState, error) {
+	procs, err := process.NewProcess(int32(pid))
+	if err != nil {
+		glog.Errorf("create psutils process error: %v", err)
+		return nil, err
 	}
+
+	ret := make(chan *ProcessState, 1)
+	go func() {
+		defer close(ret)
+		for {
+			select {
+			case _, ok := <-c:
+				if !ok {
+					return
+				}
+				if err := procs.SendSignal(syscall.Signal(0)); err != nil {
+					return
+				}
+				ret <- getProcessState(procs)
+			}
+		}
+	}()
+
+	return ret, nil
+}
+
+func getProcessState(proc *process.Process) (ps *ProcessState) {
 	var merr *multierror.Error
 	numFDs, err := proc.NumFDs()
 	if err != nil {

@@ -42,13 +42,18 @@ func (pi *ProbeInterface) Validate() error {
 }
 
 // GetProbeInterfaces return probeinterface of bin and env
-func (p *Prober) getProbeInterfaces(key types.DeployName) []*ProbeInterface {
+func (p *Prober) getProbeInterfaces(stage types.Stage, key types.DeployName) []*ProbeInterface {
 	if p == nil {
 		return nil
 	}
 
 	p.lock.RLock()
-	pis, ok := p.dialInterfaces[key]
+
+	k := dikey{
+		stage: stage,
+		dname: key,
+	}
+	pis, ok := p.dialInterfaces[k]
 	p.lock.RUnlock()
 	if !ok {
 		return nil
@@ -66,10 +71,14 @@ func (p *Prober) getProbeInterfaces(key types.DeployName) []*ProbeInterface {
 	return ret
 }
 
+type dikey struct {
+	stage types.Stage
+	dname types.DeployName
+}
+
 // Prober probe a java server
 type Prober struct {
-	dialInterfaces map[types.DeployName]map[string]*ProbeInterface
-	stage          types.Stage
+	dialInterfaces map[dikey]map[string]*ProbeInterface
 	lock           sync.RWMutex
 }
 
@@ -85,7 +94,7 @@ func (p *Prober) lg(ii *InstanceInfo) (probe.LoadGenerator, error) {
 	return func() interface{} {
 		addr := ii.Listening[0]
 		url := fmt.Sprintf("http://%v:%v", addr.IP, addr.Port)
-		dis := p.getProbeInterfaces(ii.DeployName)
+		dis := p.getProbeInterfaces(ii.Stage, ii.DeployName)
 
 		ret := make([]*java.Args, 0, len(dis))
 		for _, di := range dis {
@@ -103,8 +112,17 @@ func (p *Prober) lg(ii *InstanceInfo) (probe.LoadGenerator, error) {
 }
 
 // Probe probe backend java server
-func (p *Prober) Probe(ii InstanceInfo) (probe.Result, error) {
-	lg, err := p.lg(&ii)
+func (p *Prober) Probe(ins *types.Instance) (probe.Result, error) {
+	if ins == nil {
+		return probe.Success, nil
+	}
+
+	ii, ok := ins.Private.(*InstanceInfo)
+	if !ok {
+		return probe.Unknown, errors.New("not an java instance")
+	}
+
+	lg, err := p.lg(ii)
 	if err != nil {
 		return probe.Unknown, err
 	}

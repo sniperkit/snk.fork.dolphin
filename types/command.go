@@ -19,12 +19,13 @@ const (
 // Command represent a command sent by master/manager, for this
 // node to execute
 type Command struct {
-	ComandID       string        `json:"comandID,omitempty"`
-	Type           CommandType   `json:"type,omitempty"`
-	Args           interface{}   `json:"args,omitempty"`
-	ExecuteTimeout time.Duration `json:"executeTimeout,omitempty"`
-	Needout        bool          `json:"needout,omitempty"`
-	OutKeep        time.Duration `json:"outKeep,omitempty"`
+	ComandID       string            `json:"comandID,omitempty"`
+	Type           CommandType       `json:"type,omitempty"`
+	Args           interface{}       `json:"args,omitempty"`
+	Envs           map[string]string `json:"envs,omitempty"`
+	ExecuteTimeout time.Duration     `json:"executeTimeout,omitempty"`
+	Needout        bool              `json:"needout,omitempty"`
+	OutKeep        time.Duration     `json:"outKeep,omitempty"`
 }
 
 // CommandResult represent an execute result of and  command
@@ -33,4 +34,5 @@ type CommandResult struct {
 	Success   bool          `json:"success,omitempty"`
 	Took      time.Duration `json:"took,omitempty"`
 	Output    []byte        `json:"output,omitempty"`
+	Err       error         `json:"err,omitempty"`
 }

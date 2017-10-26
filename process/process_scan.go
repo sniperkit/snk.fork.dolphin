@@ -16,23 +16,25 @@ import (
 
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
+	"we.com/dolphin/types"
 )
 
 // Typ patten type
 type Typ string
 
 const (
-	TypPattern Typ = "pattern"
-	TypExe     Typ = "exe"
-	unknown       = "unknown"
+	TypPattern Typ             = "pattern"
+	TypExe     Typ             = "exe"
+	unknown    types.DeployKey = "unknown"
 )
 
 // PidType  pidtype
 type PidType struct {
-	Typ  Typ
-	Args string
-	re   *regexp.Regexp
-	Parse types.InstanceParser
+	Typ    Typ
+	Args   string
+	re     *regexp.Regexp
+	Parse  types.InstanceParser
+	Prober types.Prober
 }
 
 // GetRegexp get re
@@ -45,11 +47,12 @@ func (pt *PidType) GetRegexp() (*regexp.Regexp, error) {
 		return nil, errors.New("args cannot be empty string")
 	}
 
-	exe :=   pt.Args
+	exe := pt.Args
 	if pt.Typ == TypExe {
 		exe = fmt.Sprintf("^[^\x00]*/?%s$", pt.Args)
 	}
-	pt.re, err := regexp.Compile(exe)
+	var err error
+	pt.re, err = regexp.Compile(exe)
 	return pt.re, err
 }
 
@@ -86,6 +89,10 @@ func pidsFromExe(exe string) ([]int, error) {
 
 func pidsFromPattern(pattern string) ([]int, error) {
 	return Pgrep(pattern, false)
+}
+
+func GetAllPids() []int {
+	return getPids(nil)
 }
 
 // GetAllPidsOfType return all pids of type type
@@ -146,6 +153,11 @@ func getPids(pt *PidType) []int {
 			}
 		}
 
+		if pt == nil {
+			pids = append(pids, pid)
+			return skip
+		}
+
 		file := filepath.Join(path, "cmdline")
 
 		cmdline, err := ioutil.ReadFile(file)
@@ -171,8 +183,8 @@ func PKill(name string, sig syscall.Signal, matchBinOnly bool) error {
 	}
 
 	pt := &PidType{
-		re: re,
-		Typ: TypPattern
+		re:  re,
+		Typ: TypPattern,
 	}
 	if matchBinOnly {
 		pt.Typ = TypExe
@@ -200,24 +212,23 @@ func Pgrep(name string, matchBinOnly bool) ([]int, error) {
 	}
 
 	pt := &PidType{
-		re: re,
-		Typ: TypPattern
+		re:  re,
+		Typ: TypPattern,
 	}
 	if matchBinOnly {
 		pt.Typ = TypExe
 	}
 
-
 	return getPids(pt), nil
 }
 
-func matchCmdline(cmdline string, pt *PidType) bool {
+func matchCmdline(cmdline []byte, pt *PidType) bool {
 	exe := []string{}
-	if pt.Typ ==  TypExe {
+	if pt.Typ == TypExe {
 		// The bytes we read have '\0' as a separator for the command line
 		parts := bytes.SplitN(cmdline, []byte{0}, 2)
 		if len(parts) == 0 {
-			return skip
+			return false
 		}
 		// Split the command line itself we are interested in just the first part
 		exe = strings.FieldsFunc(string(parts[0]), func(c rune) bool {

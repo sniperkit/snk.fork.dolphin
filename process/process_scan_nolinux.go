@@ -22,9 +22,10 @@ const (
 
 // PidType  pidtype
 type PidType struct {
-	Typ   Typ
-	Args  string
-	Parse types.InstanceParser
+	Typ    Typ
+	Args   string
+	Parse  types.InstanceParser
+	Prober types.Prober
 }
 
 // GetRegexp get re
@@ -67,6 +68,10 @@ func pidsFromPattern(pattern string) ([]int, error) {
 	return Pgrep(pattern, false)
 }
 
+func GetAllPids() []int {
+	return nil
+}
+
 // GetAllPidsOfType return all pids of type type
 func GetAllPidsOfType(typ string) ([]int, error) {
 	return nil, nil
@@ -83,6 +88,6 @@ func Pgrep(name string, matchBinOnly bool) ([]int, error) {
 	return nil, nil
 }
 
-func matchCmdline(cmdline string, pt *PidType) bool {
+func matchCmdline(cmdline []byte, pt *PidType) bool {
 	return false
 }

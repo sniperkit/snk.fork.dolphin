@@ -24,6 +24,7 @@ const (
 type RestartType string
 
 // RestartPolicy action taken when  process exits
+// when Type is Onetime, until should also be set, to indicat agent that it should not start it again on  agent restart
 type RestartPolicy struct {
 	Type  RestartType `json:"type,omitempty"`
 	Until time.Time   `json:"value,omitempty"`
@@ -95,6 +96,9 @@ func (rp *RestartPolicy) UnmarshalJSON(data []byte) error {
 		d, err := time.Parse(format, a)
 		if err != nil {
 			return err
+		}
+		if format != time.RFC3339 {
+			d = d.Add(8 * time.Hour)
 		}
 
 		rp.Type = t.Type
@@ -207,7 +211,7 @@ type DeployConfig struct {
 	UpdatePolicy *UpdateOption `json:"updatePolicy,omitempty"`
 }
 
-// GetDeployUpdateOption  return defalut UpdateOption for serviceType
+// GetDefaultUpdateOption  return defalut UpdateOption for serviceType
 func GetDefaultUpdateOption(typ ServiceType) *UpdateOption {
 	var upo *UpdateOption
 	switch typ {
@@ -256,6 +260,19 @@ func (dc *DeployConfig) GetSelector() labels.Selector {
 // Key get deployKey of this config
 func (dc *DeployConfig) Key() DeployKey {
 	return DeployKey(fmt.Sprintf("%v/%v", dc.Type, dc.Name))
+}
+
+// ParseDeployKey parse deploy key to projectType
+func ParseDeployKey(key DeployKey) (ProjectType, string, error) {
+	idx := strings.Index(string(key), "/")
+	if idx == -1 || idx+1 == len(key) {
+		return ProjectType(""), "", errors.New("invalid deploy key")
+	}
+
+	s := string(key)
+	pt := ProjectType(s[:idx])
+	name := s[idx+1:]
+	return pt, name, nil
 }
 
 type DeployVer string

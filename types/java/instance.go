@@ -159,7 +159,10 @@ type parse struct {
 }
 
 func (p *parse) Parse(pid int) (*types.Instance, error) {
-	proc := process.NewProcess(int32(pid))
+	proc, err := process.NewProcess(int32(pid))
+	if err != nil {
+		return nil, err
+	}
 
 	return NewInstanceInfo(proc)
 }
@@ -170,9 +173,10 @@ func needGetListenPort(dn types.DeployName) bool {
 
 func init() {
 	err := ps.Register(Type, ps.PidType{
-		Typ:   ps.TypPattern,
-		Args:  "D",
-		Parse: &parse{},
+		Typ:    ps.TypPattern,
+		Args:   "D",
+		Parse:  &parse{},
+		Prober: &Prober{},
 	})
 	if err != nil {
 		glog.Fatal(err)
