@@ -168,6 +168,9 @@ func (p *ps) GetDeployKeys() map[types.DeployKey]struct{} {
 	ret := make(map[types.DeployKey]struct{}, len(p.instances))
 
 	for k := range p.instances {
+		if k == unknown {
+			continue
+		}
 		ret[k] = struct{}{}
 	}
 
