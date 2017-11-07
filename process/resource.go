@@ -38,3 +38,7 @@ func GetDefaultDeployResource(st StageType) *ResouceSpec {
 	}
 	return nil
 }
+
+type ResourceInfor interface {
+	GetDeployResouce(key types.DeployKey) *types.DeployResource
+}

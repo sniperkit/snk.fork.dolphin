@@ -1,7 +1,6 @@
 package ps
 
 import (
-	"syscall"
 	"time"
 
 	"github.com/golang/glog"
@@ -46,7 +45,7 @@ func CalProcessState(c <-chan time.Time, pid int) (<-chan *ProcessState, error) 
 				if !ok {
 					return
 				}
-				if err := procs.SendSignal(syscall.Signal(0)); err != nil {
+				if isProcessStopped(pid) {
 					return
 				}
 				ret <- getProcessState(procs)

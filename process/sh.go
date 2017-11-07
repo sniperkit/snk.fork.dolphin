@@ -3,6 +3,7 @@ package ps
 import (
 	"context"
 	"syscall"
+	"time"
 
 	sh "github.com/codeskyblue/go-sh"
 	"we.com/dolphin/types"
@@ -78,4 +79,46 @@ func Execute(ctx context.Context, action types.Command) types.CommandResult {
 	}
 
 	return ret
+}
+
+func startCmd(ver types.DeployVer, key types.DeployKey) *types.Command {
+	envMap := map[string]string{
+		envDeployKey:  string(key),
+		envVersion:    string(ver),
+		envInstanceID: string(types.NewInstanceID()),
+	}
+	action := types.Command{
+		Type:           types.CMDStartInstance,
+		Args:           []string{string(key), string(ver)},
+		ExecuteTimeout: time.Minute,
+		Needout:        false,
+		Envs:           envMap,
+		OutKeep:        6 * time.Hour,
+	}
+
+	return &action
+}
+
+func restartCmd(v *types.Instance) *types.Command {
+	action := types.Command{
+		Type:           types.CMDRestartInstance,
+		Args:           v.StopCmdArgs(),
+		ExecuteTimeout: time.Minute,
+		Needout:        false,
+		OutKeep:        6 * time.Hour,
+	}
+
+	return &action
+}
+
+func stopCmd(v *types.Instance) *types.Command {
+	action := types.Command{
+		Type:           types.CMDStopInstance,
+		Args:           v.StopCmdArgs(),
+		ExecuteTimeout: time.Minute,
+		Needout:        false,
+		OutKeep:        6 * time.Hour,
+	}
+
+	return &action
 }

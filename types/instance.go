@@ -103,11 +103,12 @@ type Instance struct {
 	Stage  Stage  `json:"stage,omitempty"`
 
 	// Instance info
-	Version    string    `json:"version,omitempty"`
-	StartTime  time.Time `json:"startTime,omitempty"`
-	StopTime   time.Time `json:"stopTime,omitempty"`
-	UpdateTime time.Time `json:"updateTime,omitempty"`
-	LifeCycle  LifeCycle `json:"lifeCycle,omitempty"`
+	ServiceType ServiceType `json:"serviceType,omitempty"`
+	Version     string      `json:"version,omitempty"`
+	StartTime   time.Time   `json:"startTime,omitempty"`
+	StopTime    time.Time   `json:"stopTime,omitempty"`
+	UpdateTime  time.Time   `json:"updateTime,omitempty"`
+	LifeCycle   LifeCycle   `json:"lifeCycle,omitempty"`
 
 	Listening []Addr `json:"listening,omitempyt,omitempty"`
 
@@ -127,9 +128,20 @@ func (ins *Instance) DeployKey() DeployKey {
 	return DeployKey(fmt.Sprintf("%v/%v", ins.ProjecType, ins.DeployName))
 }
 
+// InstanceInfor instance info
+type InstanceInfor interface {
+	GetExe() string
+	GetEnvMap() map[string]string
+	GetArgs() string
+}
+
+// InstanceParseFunc function to parse instances info
+type InstanceParseFunc func(ins *Instance, ii InstanceInfor) error
+
 // InstanceParser given an pid  parse instanse info  from it command line, env, etc.
 type InstanceParser interface {
-	Parse(pid int) (*Instance, error)
+	//Parse(pid int) (*Instance, error)
+	Parse(ins *Instance, envMap map[string]string, cmdline string) error
 }
 
 // Prober an instance prober

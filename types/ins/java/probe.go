@@ -82,19 +82,24 @@ type Prober struct {
 	lock           sync.RWMutex
 }
 
-func (p *Prober) lg(ii *InstanceInfo) (probe.LoadGenerator, error) {
-	if len(ii.Listening) == 0 {
+func (p *Prober) lg(ins *types.Instance) (probe.LoadGenerator, error) {
+	ii, ok := ins.Private.(*InstanceInfo)
+	if !ok {
+		return nil, errors.New("not an java instance")
+	}
+
+	if len(ins.Listening) == 0 {
 		return nil, nil
 	}
 
-	if len(ii.Listening) > 1 {
+	if len(ins.Listening) > 1 {
 		return nil, errors.New("instance is listening to port, probe which")
 	}
 
 	return func() interface{} {
-		addr := ii.Listening[0]
+		addr := ins.Listening[0]
 		url := fmt.Sprintf("http://%v:%v", addr.IP, addr.Port)
-		dis := p.getProbeInterfaces(ii.Stage, ii.DeployName)
+		dis := p.getProbeInterfaces(ins.Stage, ins.DeployName)
 
 		ret := make([]*java.Args, 0, len(dis))
 		for _, di := range dis {
@@ -117,12 +122,7 @@ func (p *Prober) Probe(ins *types.Instance) (probe.Result, error) {
 		return probe.Success, nil
 	}
 
-	ii, ok := ins.Private.(*InstanceInfo)
-	if !ok {
-		return probe.Unknown, errors.New("not an java instance")
-	}
-
-	lg, err := p.lg(ii)
+	lg, err := p.lg(ins)
 	if err != nil {
 		return probe.Unknown, err
 	}
