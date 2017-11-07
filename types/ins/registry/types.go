@@ -76,14 +76,14 @@ const (
 )
 
 // GetInstanceType given envmap and  cmdline args check which types a instance belongs to
-//
 func GetInstanceType(insInfor types.InstanceInfor) types.ProjectType {
 	lock.Lock()
 	defer lock.Unlock()
 	exe := insInfor.GetExe()
 
 	for idx, v := range sortedType {
-		ti := GetTypeInfo(v.Type)
+		ti := registry[v.Type]
+		// here ti is not nil
 		if ti.Identifier.Exec != exe {
 			continue
 		}
