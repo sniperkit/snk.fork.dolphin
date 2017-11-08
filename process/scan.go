@@ -126,7 +126,12 @@ func (s *scanner) update() error {
 				glog.Infof("ps: parse instance info %v", err)
 			}
 			if ins != nil {
+				glog.Infof("ps: new instance (%v,%v)", ins.DeployKey(), pid)
 				s.instances[ins.DeployKey()] = ins
+				s.eventChan <- InstanceEvent{
+					Type: ETStarting,
+					Ins:  ins,
+				}
 				go s.watchInstance(ins, registry.GetTypeInfo(ins.ProjecType))
 			}
 		}

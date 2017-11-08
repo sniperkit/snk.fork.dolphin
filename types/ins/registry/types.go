@@ -11,6 +11,7 @@ import (
 
 // InstanceIdentifier identifier to check if an instance of this type
 type InstanceIdentifier struct {
+	// executable cmd, as java, beam, redis-server, etc. not path, eg /usr/bin/java
 	Exec   string
 	EnvMap map[string]string
 	Args   string
@@ -20,7 +21,7 @@ type InstanceIdentifier struct {
 // TypeInfo  pidtype
 type TypeInfo struct {
 	Type       types.ProjectType
-	Identifier InstanceIdentifier
+	Identifier *InstanceIdentifier
 	Parse      types.InstanceParseFunc
 	Prober     types.Prober
 	Decoder    JSONInsDecoder
@@ -51,6 +52,10 @@ func Register(pt TypeInfo) error {
 		return errors.New("ps: Parse cannot be nil when register")
 	}
 
+	if pt.Identifier == nil {
+		return errors.Errorf("ps: identifier cannot be nil when register for :%v", typ)
+	}
+
 	registry[typ] = &pt
 	sortedType = append(sortedType, &typeCount{Type: typ, Count: 0})
 	return nil
@@ -77,10 +82,16 @@ const (
 
 // GetInstanceType given envmap and  cmdline args check which types a instance belongs to
 func GetInstanceType(insInfor types.InstanceInfor) types.ProjectType {
+	exe := insInfor.GetExe()
+	idx := strings.LastIndex(exe, "/")
+	if idx > 0 {
+		exe = exe[idx+1:]
+	}
+
 	lock.Lock()
 	defer lock.Unlock()
-	exe := insInfor.GetExe()
 
+out:
 	for idx, v := range sortedType {
 		ti := registry[v.Type]
 		// here ti is not nil
@@ -92,7 +103,7 @@ func GetInstanceType(insInfor types.InstanceInfor) types.ProjectType {
 			envMap := insInfor.GetEnvMap()
 			for e, val := range ti.Identifier.EnvMap {
 				if val != envMap[e] {
-					continue
+					continue out
 				}
 			}
 		}
@@ -102,17 +113,18 @@ func GetInstanceType(insInfor types.InstanceInfor) types.ProjectType {
 		}
 
 		if ti.Identifier.ArgsRe != nil {
-			if ti.Identifier.ArgsRe.MatchString(insInfor.GetArgs()) {
-				v.Count++
-				if idx > 1 && sortedType[idx-1].Count < v.Count {
-					pre := sortedType[idx-1]
-					sortedType[idx-1] = v
-					sortedType[idx] = pre
-				}
-				return v.Type
+			if !ti.Identifier.ArgsRe.MatchString(insInfor.GetArgs()) {
+				continue out
 			}
 		}
 
+		v.Count++
+		if idx > 1 && sortedType[idx-1].Count < v.Count {
+			pre := sortedType[idx-1]
+			sortedType[idx-1] = v
+			sortedType[idx] = pre
+		}
+		return v.Type
 	}
 
 	return PTUnknown

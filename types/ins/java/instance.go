@@ -71,7 +71,11 @@ func fillInstanceInfo(ins *types.Instance, insInfor types.InstanceInfor) error {
 
 func init() {
 	typeInfo := registry.TypeInfo{
-		Type:    Type,
+		Type: Type,
+		Identifier: &registry.InstanceIdentifier{
+			Exec: "java",
+			Args: "Djava.apps.prog",
+		},
 		Parse:   fillInstanceInfo,
 		Prober:  &Prober{},
 		Decoder: &decode{},
