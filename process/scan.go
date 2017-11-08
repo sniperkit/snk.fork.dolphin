@@ -417,14 +417,12 @@ func Stop(ctx context.Context, ins *types.Instance) {
 }
 
 // Start starts a new instance of key
-func Start(ctx context.Context, key types.DeployKey) error {
+func Start(ctx context.Context, key types.DeployKey) ([]byte, error) {
 	args := []string{string(key)}
 
 	//todo: get the pid of new started service
 	// throught pid file ?
-	err := start(ctx, args, nil)
-
-	return err
+	return start(ctx, args, nil)
 }
 
 // Probe checks process resouce usage, and probe instance status through the given probe method

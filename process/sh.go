@@ -6,11 +6,12 @@ import (
 	"time"
 
 	sh "github.com/codeskyblue/go-sh"
+	"github.com/pkg/errors"
 	"we.com/dolphin/types"
 )
 
 var (
-	ctrlScript = "/etc/dolphin/scripts/ctrl.sh"
+	ctrlScript = "/etc/telegraf/scripts/ctrl.sh"
 )
 
 func goo(f func() error) chan error {
@@ -47,19 +48,34 @@ func newCmd(cmd string, args []string, env map[string]string) *sh.Session {
 	return s
 }
 
-func stop(ctx context.Context, args []string, env map[string]string) error {
+func stop(ctx context.Context, args []string, env map[string]string) ([]byte, error) {
 	s := newCmd("stop", args, env)
-	return execute(ctx, s)
+	err := execute(ctx, s)
+	if err != nil {
+		return s.Output()
+	}
+	o, _ := s.Output()
+	return o, err
 }
 
-func start(ctx context.Context, args []string, env map[string]string) error {
+func start(ctx context.Context, args []string, env map[string]string) ([]byte, error) {
 	s := newCmd("start", args, env)
-	return execute(ctx, s)
+	err := execute(ctx, s)
+	if err != nil {
+		return s.Output()
+	}
+	o, _ := s.Output()
+	return o, err
 }
 
-func restart(ctx context.Context, args []string, env map[string]string) error {
+func restart(ctx context.Context, args []string, env map[string]string) ([]byte, error) {
 	s := newCmd("restart", args, env)
-	return execute(ctx, s)
+	err := execute(ctx, s)
+	if err != nil {
+		return s.Output()
+	}
+	o, _ := s.Output()
+	return o, err
 }
 
 // Execute an action
@@ -70,12 +86,54 @@ func Execute(ctx context.Context, action types.Command) types.CommandResult {
 		//Took      time.Duration `json:"took,omitempty"`
 		//Output    []byte        `json:"output,omitempty"`
 	}
+
+	s := time.Now()
+	var sesstion *sh.Session
+
 	switch action.Type {
 	case types.CMDStopInstance:
+		args, ok := action.Args.([]string)
+		if !ok {
+			ret.Err = errors.New("invalid args for stop instance command, expect args be []string")
+		} else {
+			sesstion = newCmd("stop", args, action.Envs)
+		}
+
 	case types.CMDStartInstance:
+		args, ok := action.Args.([]string)
+		if !ok {
+			ret.Err = errors.New("invalid args for start instance command, expect args be []string")
+		} else {
+			sesstion = newCmd("start", args, action.Envs)
+		}
+
 	case types.CMDRestartInstance:
+		args, ok := action.Args.([]string)
+		if !ok {
+			ret.Err = errors.New("invalid args for restart instance command, expect args be []string")
+		} else {
+			sesstion = newCmd("restart", args, action.Envs)
+		}
 	case types.CMDProbe:
+		ret.Err = errors.Errorf("unsupport command: probe")
 	default:
+		ret.Err = errors.Errorf("unsupport command: %v", action.Type)
+	}
+
+	if sesstion == nil {
+		return ret
+	}
+
+	if err := execute(ctx, sesstion); err != nil {
+		ret.Err = err
+	}
+
+	e := time.Now()
+	ret.Took = e.Sub(s)
+	o, err := sesstion.Output()
+	ret.Output = o
+	if ret.Err == nil {
+		ret.Err = err
 	}
 
 	return ret
@@ -100,9 +158,10 @@ func startCmd(ver types.DeployVer, key types.DeployKey) *types.Command {
 }
 
 func restartCmd(v *types.Instance) *types.Command {
+	args := v.StopCmdArgs()
 	action := types.Command{
 		Type:           types.CMDRestartInstance,
-		Args:           v.StopCmdArgs(),
+		Args:           args[:],
 		ExecuteTimeout: time.Minute,
 		Needout:        false,
 		OutKeep:        6 * time.Hour,
@@ -112,9 +171,10 @@ func restartCmd(v *types.Instance) *types.Command {
 }
 
 func stopCmd(v *types.Instance) *types.Command {
+	args := v.StopCmdArgs()
 	action := types.Command{
 		Type:           types.CMDStopInstance,
-		Args:           v.StopCmdArgs(),
+		Args:           args[:],
 		ExecuteTimeout: time.Minute,
 		Needout:        false,
 		OutKeep:        6 * time.Hour,
