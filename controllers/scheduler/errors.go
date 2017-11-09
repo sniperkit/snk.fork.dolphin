@@ -1,4 +1,4 @@
-package replica
+package scheduler
 
 import "errors"
 

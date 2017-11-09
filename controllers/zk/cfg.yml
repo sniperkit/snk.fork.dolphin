@@ -1,0 +1,19 @@
+timeout: 10s
+
+env: 
+  uat: 
+    zkServers: ["10.10.10.146:9090"]
+    dialTimeout: 5s
+    zkPaths:
+      - base: /service
+        regexp: '/service(/[^/]+){2}'
+      - base: /biz
+        regexp: '/biz(/[^/]){2}(instance|daemon|policy/default)'
+
+  idc: 
+    zkServers: ["10.10.10.30:9090", "10.10.10.29:9090", "10.10.10.59:9090"]
+    zkPaths:
+      - base:  /service
+        regexp: '/service(/[^/]+){2}'
+      - base: /biz
+        regexp:  '/biz(/[^/]){2}(instance|daemon|policy/default)'

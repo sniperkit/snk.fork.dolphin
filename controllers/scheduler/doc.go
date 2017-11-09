@@ -6,4 +6,4 @@
 		make sure the config num of instances are running across the cluster
 
 */
-package replica
+package scheduler

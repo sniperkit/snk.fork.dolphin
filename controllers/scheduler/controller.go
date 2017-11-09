@@ -1,4 +1,4 @@
-package replica
+package scheduler
 
 import (
 	"container/list"
@@ -329,7 +329,7 @@ func (c *controller) updateInstances(ctx context.Context, ins []*types.Instance)
 
 		var b1 *types.Instance
 		var b2 *types.Instance
-		for k, v := range insMap {
+		for _, v := range insMap {
 			if v.HostID != p2 && v.HostID != p1 {
 				ret = v
 				return ret

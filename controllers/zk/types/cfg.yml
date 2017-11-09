@@ -1,0 +1,10 @@
+timeout: 10s
+env: 
+  test: 
+    zkServers: ["192.168.1.34:9090"]
+    dialTimeout: 5s
+    zkPaths:
+      - base: /service
+        regexp: '/service(/[^/]+){2}'
+      - base: /biz
+        regexp: '/biz(/[^/]){2}(instance|daemon|policy/default)'

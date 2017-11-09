@@ -1,4 +1,4 @@
-package replica
+package scheduler
 
 import (
 	"context"
@@ -9,11 +9,11 @@ import (
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
 	ctypes "we.com/dolphin/controllers/types"
-	ps "we.com/dolphin/process"
 	"we.com/dolphin/registry/etcdkey"
 	"we.com/dolphin/registry/generic"
 	"we.com/dolphin/registry/watch"
 	"we.com/dolphin/types"
+	"we.com/dolphin/types/ins/registry"
 )
 
 func loadDeployConfig(stage types.Stage, key types.DeployKey) (map[types.HostID]*types.DeploySpec, error) {
@@ -83,7 +83,7 @@ outer:
 }
 
 func getStore() (generic.Interface, error) {
-	return nil, nil
+	return generic.GetStoreInstance(etcdkey.BaseDir(), false)
 }
 
 func toRequire(dc *types.DeployConfig) *ctypes.Require {
@@ -91,7 +91,7 @@ func toRequire(dc *types.DeployConfig) *ctypes.Require {
 
 	rr := dc.ResourceRequired
 	if rr == nil {
-		t := ps.GetDefaultDeployResource(ps.StageType{Stage: dc.Stage, Type: dc.Type})
+		t := registry.GetDefaultDeployResource(registry.StageType{Stage: dc.Stage, Type: dc.Type})
 		if t != nil {
 			rr = &t.Medium
 		}

@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,6 +17,7 @@ import (
 	"we.com/dolphin/api/java"
 	"we.com/dolphin/logger"
 	"we.com/dolphin/registry/generic"
+	_ "we.com/dolphin/types/all"
 )
 
 var (
