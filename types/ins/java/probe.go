@@ -127,6 +127,10 @@ func (p *Prober) Probe(ins *types.Instance) (probe.Result, error) {
 		return probe.Unknown, err
 	}
 
+	if lg == nil {
+		return probe.Success, nil
+	}
+
 	ret, _, err := java.Probe(lg)
 	return ret, err
 }
