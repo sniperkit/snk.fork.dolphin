@@ -159,7 +159,7 @@ func (s *scanner) watchInstance(ins *types.Instance, typeInfo *registry.TypeInfo
 	for {
 		timer.Reset(d)
 		select {
-		case <-timer.C:
+		case n := <-timer.C:
 			if isProcessStopped(ins.Pid) {
 				s.eventChan <- InstanceEvent{
 					Type: ETStopped,
@@ -171,12 +171,15 @@ func (s *scanner) watchInstance(ins *types.Instance, typeInfo *registry.TypeInfo
 			st := getProcessState(proc)
 
 			rr := s.rp.GetDeployResouce(key)
-
 			if err := Probe(ins, st, rr); err != nil {
-				glog.Infof("ps:  probe instance %v err: %v", ins.Pid, err)
+				if s.metricChan != nil {
+					s.metricChan <- getMetrics(ins, st)
+				}
+				glog.Errorf("ps:  probe instance %v err: %v", ins.Pid, err)
 				continue
 			}
 
+			ins.UpdateTime = n
 			if s.metricChan != nil {
 				s.metricChan <- getMetrics(ins, st)
 			}
