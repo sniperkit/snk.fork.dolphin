@@ -1,4 +1,4 @@
-package ps
+package registry
 
 import (
 	"bytes"
@@ -19,14 +19,6 @@ type StageType struct {
 	Stage types.Stage
 	Type  types.ProjectType
 }
-
-type ResouceSpecType string
-
-var (
-	Small  ResouceSpecType = "small"
-	Medium ResouceSpecType = "medium"
-	Large  ResouceSpecType = "large"
-)
 
 type ResouceSpec struct {
 	Small  types.DeployResource

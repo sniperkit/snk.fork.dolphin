@@ -53,7 +53,7 @@ type InstanceEvent struct {
 }
 
 // NewScanner returns a new scanner
-func NewScanner(rp ResourceInfor) Scanner {
+func NewScanner(rp registry.ResourceInfor) Scanner {
 	return &scanner{
 		rp:         rp,
 		procs:      map[int]*process.Process{},
@@ -71,7 +71,7 @@ func NewScanner(rp ResourceInfor) Scanner {
 type scanner struct {
 	lock       sync.RWMutex
 	wg         sync.WaitGroup
-	rp         ResourceInfor
+	rp         registry.ResourceInfor
 	procs      map[int]*process.Process
 	instances  map[types.DeployKey]*types.Instance
 	stopped    map[types.DeployKey]*types.Instance
@@ -449,7 +449,7 @@ func Probe(ins *types.Instance, st *ProcessState, resReq *types.DeployResource) 
 	}
 
 	if resReq == nil {
-		spec := GetDefaultDeployResource(StageType{
+		spec := registry.GetDefaultDeployResource(registry.StageType{
 			Stage: ins.Stage,
 			Type:  ins.ProjecType,
 		})

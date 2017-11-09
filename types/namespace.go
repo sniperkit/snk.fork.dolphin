@@ -41,6 +41,7 @@ const (
 	Test
 	Intergration
 	QA
+	UAT
 	Production
 )
 
@@ -52,6 +53,7 @@ var stages = map[Stage]string{
 	Test:         "test",
 	QA:           "qa",
 	Intergration: "int",
+	UAT:          "uat",
 	Production:   "prd",
 	UnknownStage: "unknown",
 }
