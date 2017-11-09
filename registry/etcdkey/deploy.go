@@ -38,7 +38,7 @@ func BaseDir() string {
 }
 
 func StageBaseDir(stage types.Stage) string {
-	return fmt.Sprintf("%v%v/", basedir, stage)
+	return fmt.Sprintf("%v%v/", basedir, stage.String())
 }
 
 func DeployDir(stage types.Stage) string {

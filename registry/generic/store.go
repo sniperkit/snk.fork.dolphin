@@ -29,6 +29,30 @@ func EnforcePtr(obj interface{}) (reflect.Value, error) {
 	return v.Elem(), nil
 }
 
+// EnforceMap ensures that obj is a pointer of some sort. Returns a reflect.Value
+// of this map, ensuring that it is settable/addressable.
+// Returns an error if this is not possible.
+func EnforceMap(obj interface{}) (reflect.Value, error) {
+	v := reflect.ValueOf(obj)
+	t := reflect.TypeOf(obj)
+	if v.Kind() != reflect.Map {
+		if v.Kind() == reflect.Invalid {
+			return reflect.Value{}, fmt.Errorf("expected pointer, but got invalid kind")
+		}
+		return reflect.Value{}, fmt.Errorf("expected a map, but got %v type", v.Type())
+	}
+
+	if t.Key().Kind() != reflect.String {
+		return reflect.Value{}, fmt.Errorf("expected map key is string, got %v", t.Key().Kind())
+	}
+
+	if v.IsNil() {
+		return reflect.Value{}, fmt.Errorf("expected pointer, but got nil")
+	}
+
+	return v, nil
+}
+
 type store struct {
 	client *clientv3.Client
 	// getOpts contains additional options that should be passed
@@ -211,10 +235,22 @@ func (s *store) unconditionalDelete(ctx context.Context, key string, out interfa
 
 // List implements storage.Interface.List.
 func (s *store) List(ctx context.Context, key string, pred SelectionPredicate, listObj interface{}) error {
-	_, err := EnforcePtr(listObj)
-	if err != nil {
-		return err
+	v := reflect.ValueOf(listObj)
+	isMap := false
+	switch v.Kind() {
+	case reflect.Ptr:
+		_, err := EnforcePtr(listObj)
+		if err != nil {
+			return err
+		}
+	case reflect.Map:
+		isMap = true
+		_, err := EnforceMap(listObj)
+		if err != nil {
+			return err
+		}
 	}
+
 	key = keyWithPrefix(s.pathPrefix, key)
 	// We need to make sure the key ended with "/" so that we only get children "directories".
 	// e.g. if we have key "/a", "/a/b", "/ab", getting keys with prefix "/a" will return all three,
@@ -233,6 +269,9 @@ func (s *store) List(ctx context.Context, key string, pred SelectionPredicate, l
 			data: kv.Value,
 			rev:  uint64(kv.ModRevision),
 		}
+	}
+	if isMap {
+		return decodeMap(elems, SimpleFilter(pred), listObj)
 	}
 	return decodeList(elems, SimpleFilter(pred), listObj)
 }
@@ -375,6 +414,27 @@ func decodeList(elems []*elemForDecode, filter FilterFunc, ListPtr interface{}) 
 		// being unable to set the version does not prevent the object from being extracted
 		if filter(obj) {
 			v.Set(reflect.Append(v, reflect.ValueOf(obj).Elem()))
+		}
+	}
+	return nil
+}
+
+// decodeMap decodes a list of values into a Map of objects, with resource version set to corresponding rev.
+// On success, mapObj would be set to the Map of objects.
+func decodeMap(elems []*elemForDecode, filter FilterFunc, mapObj interface{}) error {
+	v, err := EnforceMap(mapObj)
+	if err != nil || v.Kind() != reflect.Map {
+		panic("need a map")
+	}
+	for key, elem := range elems {
+		obj := reflect.New(v.Type().Elem()).Interface()
+		err := decode(elem.data, obj)
+		if err != nil {
+			return err
+		}
+		// being unable to set the version does not prevent the object from being extracted
+		if filter(obj) {
+			v.SetMapIndex(reflect.ValueOf(key), reflect.ValueOf(obj).Elem())
 		}
 	}
 	return nil

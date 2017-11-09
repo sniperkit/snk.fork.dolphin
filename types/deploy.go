@@ -195,9 +195,10 @@ type DeployConfig struct {
 	Values       map[string]interface{} `json:"values,omitempty"`
 	DeployPolicy DeployPolicy           `json:"deployPolicy,omitempty"`
 
+	Labels map[string]string `json:"labels,omitempty"` // used for query
 	// these fields used to select which hosts can start this project
-	Selector         Selector `json:"selector,omitempty"`
-	selector         labels.Selector
+	Selector         Selector        `json:"selector,omitempty"`
+	selector         labels.Selector `json:"selector,omitempty"`
 	ResourceQuota    *ResourceSize   `json:"resourceQuota,omitempty"`
 	ResourceRequired *DeployResource `json:"resourceRequired,omitempty"`
 
@@ -209,6 +210,49 @@ type DeployConfig struct {
 	// for deamon:  default is  rollingupdate
 	// for onetime script: not used, we would update onetime running scripts
 	UpdatePolicy *UpdateOption `json:"updatePolicy,omitempty"`
+}
+
+// Validate validate deploy config
+func (dc *DeployConfig) Validate() error {
+	if dc == nil {
+		return nil
+	}
+
+	if dc.Type == ProjectType("") {
+		return errors.New("project type cannot be empty")
+	}
+
+	if dc.Name == DeployName("") {
+		return errors.New("deploy name cannot be empty")
+	}
+
+	if dc.ServiceType == ServiceType("") {
+		return errors.New("ServiceType cannot be empty")
+	}
+
+	if dc.NumOfInstance <= 0 {
+		return errors.New("numofInstance cannot less than 1")
+	}
+
+	if dc.Stage == UnknownStage {
+		return errors.New("unknown env")
+	}
+
+	if len(dc.Selector) > 0 && dc.selector == nil {
+		s, err := dc.Selector.ToSelector()
+		if err != nil {
+			return errors.Wrap(err, "parse selector")
+		}
+		dc.selector = s
+	}
+
+	if dc.RestartPolicy == nil {
+		dc.RestartPolicy = &RestartPolicy{
+			Type: Always,
+		}
+	}
+
+	return nil
 }
 
 // GetDefaultUpdateOption  return defalut UpdateOption for serviceType

@@ -2,7 +2,6 @@ package ps
 
 import (
 	"bytes"
-	"container/list"
 	"context"
 	"fmt"
 	"io/ioutil"
@@ -414,11 +413,13 @@ type Metric struct {
 
 // Stop call stop  script to stop an instance
 // it will make sure the process is stopped
-func Stop(ctx context.Context, ins *types.Instance) {
+func Stop(ctx context.Context, ins *types.Instance, force bool) {
 	args := ins.StopCmdArgs()
 	stop(ctx, args[:], nil)
 	p, _ := os.FindProcess(ins.Pid)
-	p.Kill()
+	if force {
+		p.Kill()
+	}
 }
 
 // Start starts a new instance of key
@@ -446,9 +447,21 @@ func Probe(ins *types.Instance, st *ProcessState, resReq *types.DeployResource) 
 		return
 	}
 
-	conditions, events, err = st.check(resReq)
-	if err != nil {
-		return
+	if resReq == nil {
+		spec := GetDefaultDeployResource(StageType{
+			Stage: ins.Stage,
+			Type:  ins.ProjecType,
+		})
+		if spec != nil {
+			resReq = &spec.Medium
+		}
+	}
+
+	if resReq != nil {
+		conditions, events, err = st.check(resReq)
+		if err != nil {
+			return
+		}
 	}
 
 	if pt.Prober != nil {
@@ -504,39 +517,4 @@ func getMetrics(ins *types.Instance, state *ProcessState) Metric {
 		Tags:   tags,
 		Time:   ins.UpdateTime,
 	}
-}
-
-type cond struct {
-	condition *types.Condition
-	Time      time.Time
-}
-
-var (
-	conditionKeepTime = 2 * time.Minute
-)
-
-func removeExpiredCondition(l *list.List, date time.Time) {
-	for {
-		f := l.Front()
-		if f == nil {
-			return
-		}
-		e := f.Value.(*cond)
-		if e.Time.Add(conditionKeepTime).Before(date) {
-			l.Remove(f)
-		} else {
-			return
-		}
-	}
-}
-
-func appendConditions(cdts *list.List, date time.Time, conditions ...*types.Condition) {
-	for _, v := range conditions {
-		cdts.PushBack(&cond{
-			Time:      date,
-			condition: v,
-		})
-	}
-
-	removeExpiredCondition(cdts, date)
 }

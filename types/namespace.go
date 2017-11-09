@@ -56,13 +56,18 @@ var stages = map[Stage]string{
 	UnknownStage: "unknown",
 }
 
-// MarshalJSON json.Marshaler interface
-func (s Stage) MarshalJSON() ([]byte, error) {
+func (s Stage) String() string {
 	st, ok := stages[s]
 	if !ok {
 		st = stages[UnknownStage]
 	}
 
+	return st
+}
+
+// MarshalJSON json.Marshaler interface
+func (s Stage) MarshalJSON() ([]byte, error) {
+	st := s.String()
 	return json.Marshal(st)
 }
 

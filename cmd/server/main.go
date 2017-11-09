@@ -11,10 +11,11 @@ import (
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
 	"github.com/prometheus/client_golang/prometheus"
+	"we.com/dolphin/api/deploy"
+	"we.com/dolphin/api/host"
+	"we.com/dolphin/api/java"
 	"we.com/dolphin/logger"
 	"we.com/dolphin/registry/generic"
-	"we.com/jiabiao/common/etcd"
-	"we.com/jiabiao/monitor/api"
 )
 
 var (
@@ -35,12 +36,12 @@ func main() {
 		term      = make(chan os.Signal)
 		webReload = make(chan struct{})
 		stopC     = make(chan struct{})
+		err       error
 	)
-	etcdConfig, err := etcd.NewEtcdConfig("/etc/dolphin/etcd.yml")
-	if err != nil {
+
+	if err := generic.SetEtcdConfigFile("/etc/dolphin/etcd.yml"); err != nil {
 		glog.Fatalf("%v", err)
 	}
-	generic.SetEtcdConfig(etcdConfig)
 
 	if err = reload(stopC); err != nil {
 		glog.Fatalf("%v", err)
@@ -50,9 +51,9 @@ func main() {
 
 	router.PathPrefix("/debug/").Handler(http.DefaultServeMux)
 	router.PathPrefix("/metrics").Handler(prometheus.Handler())
-
-	apiH := &api.APIHandler{}
-	apiH.Registry(router.PathPrefix("/api").Subrouter())
+	deploy.Install(router)
+	host.Install(router)
+	java.Install(router)
 
 	go listen(router)
 
