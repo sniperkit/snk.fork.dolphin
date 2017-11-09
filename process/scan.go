@@ -183,6 +183,8 @@ func (s *scanner) watchInstance(ins *types.Instance, typeInfo *registry.TypeInfo
 
 			// probe status changed
 			if ins.Status != prevSt && s.eventChan != nil {
+				glog.V(10).Infof("ps: %v prev status :%v, new status: %v", ins.DeployKey(), prevSt, ins.Status)
+				prevSt = ins.Status
 				ev := InstanceEvent{
 					Ins: ins,
 				}
@@ -197,7 +199,6 @@ func (s *scanner) watchInstance(ins *types.Instance, typeInfo *registry.TypeInfo
 					ev.Type = ETProbeWarn
 				}
 
-				prevSt = ins.Status
 				s.eventChan <- ev
 			}
 		}
