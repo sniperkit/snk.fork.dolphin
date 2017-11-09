@@ -30,7 +30,7 @@ func ListenPortsOfPid(pid int) ([]types.Addr, error) {
 	}
 	defer f.Close()
 
-	glog.V(10).Infof("start to list listenPorts")
+	glog.V(12).Infof("start to list listenPorts")
 	inodeMap, err := getListenPort()
 	if err != nil {
 		return ret, err
@@ -67,16 +67,13 @@ func ListenPortsOfPid(pid int) ([]types.Addr, error) {
 		return nil
 	}
 
-	glog.V(10).Infof("start to walt dir: %v", dir)
 	if err = filepath.Walk(dir, walkFunc); err != nil {
 		return nil, err
 	}
-	glog.V(10).Infof("walk dir end: %v", ports)
 
 	// if pid, and ppid both listen the same port, then
 	// we remove this port from child listen ports, if pid is 0, or 1, skip
 	ppid, _ := getPPid(pid)
-	glog.V(10).Infof("pid, ppid: %v, %v", pid, ppid)
 	if ppid == 0 || ppid == 1 {
 		return ports, nil
 	}
