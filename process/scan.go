@@ -197,6 +197,7 @@ func (s *scanner) watchInstance(ins *types.Instance, typeInfo *registry.TypeInfo
 					ev.Type = ETProbeWarn
 				}
 
+				prevSt = ins.Status
 				s.eventChan <- ev
 			}
 		}
