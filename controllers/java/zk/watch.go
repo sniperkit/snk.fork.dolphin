@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
-	zkcfg "we.com/dolphin/controllers/zk/types"
+	zkcfg "we.com/dolphin/controllers/java/zk/types"
 )
 
 var (

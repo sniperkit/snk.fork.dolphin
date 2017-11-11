@@ -11,10 +11,10 @@ import (
 type decode struct{}
 
 func (d *decode) Decode(r io.Reader) (*types.Instance, error) {
-	ret := &types.Instance{}
+	ret := types.Instance{}
 
 	dr := yaml.NewYAMLOrJSONDecoder(r, 4)
-	if err := dr.Decode(ret); err != nil {
+	if err := dr.Decode(&ret); err != nil {
 		return nil, err
 	}
 
@@ -26,8 +26,8 @@ func (d *decode) Decode(r io.Reader) (*types.Instance, error) {
 			return nil, err
 		}
 		ret.Private = private
-		private.ins = ret
+		private.ins = &ret
 	}
 
-	return ret, nil
+	return &ret, nil
 }

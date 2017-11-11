@@ -21,12 +21,6 @@ import (
 	"we.com/jiabiao/common/labels"
 )
 
-type deployInfo struct {
-	Key       types.DeployKey
-	HostID    types.HostID
-	Instances map[types.DeployVer]int
-}
-
 type logEntity struct {
 	Time    time.Time
 	Phase   string
@@ -43,15 +37,8 @@ var (
 	phDeployUptodate    = "deploy config update to date"
 )
 
-type Controller interface {
-	Update(ctx context.Context, dc *types.DeployConfig) error
-	Stop(ctx context.Context, ins *types.Instance) error
-	Destroy(ctx context.Context) error
-	Log(n int) []logEntity
-}
-
-//	controller is reponsable for deploy a new deployment or update an exist deployment
-//	a deployment has a controller, when the deployment is removed, the associated controller is alse destroyed
+//	controller is responsable for deploy a new deployment or update an exist deployment
+//	one deployment has one controller, when the deployment is removed, the associated controller is alse destroyed
 type controller struct {
 	opt          option
 	stage        types.Stage
@@ -63,11 +50,7 @@ type controller struct {
 }
 
 func newController(dc *types.DeployConfig, opt option) (*controller, error) {
-	if dc == nil {
-		return nil, errors.New("DeployConfig cannot be nil")
-	}
-
-	hc, err := loadDeployConfig(dc.Stage, dc.Key())
+	hc, err := loadHostDeploySpec(dc.Stage, dc.Key())
 	if err != nil {
 		return nil, err
 	}
@@ -81,223 +64,92 @@ func newController(dc *types.DeployConfig, opt option) (*controller, error) {
 		maxlogs:      100,
 		logs:         list.New(),
 	}
-
 	return &c, nil
 }
 
-// newDeployment deploy a new project
-func (c *controller) newDeployment(ctx context.Context, config *types.DeployConfig, dryrun bool) error {
+// check running instance is the same with host config
+// or has an instance  restart very often
+// probe or not ?
+func (c *controller) CheckStatus() {
+
+}
+
+// start deploy a new project
+func (c *controller) Deploy(ctx context.Context, config *types.DeployConfig) error {
+	c.deployConfig = config
 	upo := config.UpdatePolicy
 	if upo == nil {
 		upo = types.GetDefaultUpdateOption(config.ServiceType)
 		config.UpdatePolicy = upo
 	}
 
-	c.deployConfig = config
-
 	switch upo.Policy {
 	case types.RollingUpdate:
-		return c.rollingUpdate(ctx, dryrun)
+		return c.rollingUpdate(ctx)
 	case types.NewDeploy:
-		return c.newDeploy(ctx, dryrun)
+		return c.newDeploy(ctx)
 	case types.MixedUpdate:
-		return c.mixUpdate(ctx, dryrun)
+		return c.mixUpdate(ctx)
 	default:
 		glog.Fatalf("unknown deploy policy of " + string(config.Key()))
 	}
-
 	return nil
 }
 
-func (c *controller) appendLog(en *logEntity) {
-	c.logs.PushBack(en)
-	for c.logs.Len() > c.maxlogs {
-		c.logs.Remove(c.logs.Front())
-	}
-}
-
-func (c *controller) StopInstance(ctx context.Context, ins *types.Instance) error {
-	en := logEntity{
-		Time:    time.Now(),
-		Phase:   phUpdateNodeConfig,
-		Success: true,
-	}
-	c.appendLog(&en)
-	spec, err := c.getHostDeployspec(ins.HostID)
+func (c *controller) rollingUpdate(ctx context.Context) error {
+	oldIns, err := c.getRunningProcess()
 	if err != nil {
-		en.Message = err.Error()
-		en.Success = false
 		return err
 	}
 
-	rv := types.DeployVer(ins.Version)
-	v, ok := spec.Info[rv]
-	if !ok {
-		return nil
-	}
+	df := c.deployConfig.NumOfInstance - len(oldIns)
 
-	v--
-	if v <= 0 {
-		delete(spec.Info, rv)
-	}
-
-	if err := c.setHostDeployspec(ins.HostID, spec); err != nil {
-		en.Message = err.Error()
-		en.Success = false
-		return err
-	}
-
-	if len(spec.Info) == 0 {
-		delete(c.hostConfig, ins.HostID)
+	// start  new instance or stop instances
+	var merr *multierror.Error
+	if df > 0 {
+		c.newInstances(ctx, df)
 	} else {
-		c.hostConfig[ins.HostID] = spec
-	}
-
-	en.Message = "udpate host deploy config success"
-	en.Success = true
-
-	return nil
-}
-
-func (c *controller) updateInstance(ctx context.Context, ins *types.Instance) error {
-	en := logEntity{
-		Time:    time.Now(),
-		Phase:   phUpdateNodeConfig,
-		Success: true,
-	}
-	c.appendLog(&en)
-	spec, err := c.getHostDeployspec(ins.HostID)
-	if err != nil {
-		en.Message = err.Error()
-		en.Success = false
-		return err
-	}
-
-	nv := types.DeployVer(c.deployConfig.Image.Version.String())
-	rv := types.DeployVer(ins.Version)
-	v, ok := spec.Info[rv]
-	if !ok || v <= 0 {
-		versions := make([]string, 0, len(spec.Info))
-		for k := range spec.Info {
-			versions = append(versions, string(k))
+		for i := 0; i+df < 0 && i < len(oldIns); i++ {
+			if err := c.StopInstance(ctx, oldIns[i]); err != nil {
+				merr = multierror.Append(merr, err)
+			}
 		}
-		vers := strings.Join(versions, ",")
-		en.Message = fmt.Sprintf("instance %v has version %v, but not in config: %v, of num of configed instance is 0", ins.Pid, rv, vers)
-		en.Success = false
-		return errors.New("")
 	}
 
-	v--
-	if v <= 0 {
-		delete(spec.Info, rv)
-	}
-
-	ov := spec.Info[nv]
-	spec.Info[nv] = ov + 1
-	if err := c.setHostDeployspec(ins.HostID, spec); err != nil {
-		en.Message = err.Error()
-		en.Success = false
-		return err
-	}
-
-	c.hostConfig[ins.HostID] = spec
-
-	en.Message = "udpate success"
-	en.Success = true
-
-	// start to waiting for instance up
-	c.waitInstanceUp(ctx, ins.HostID)
-	return nil
+	return c.updateInstances(ctx, oldIns)
 }
 
-func (c *controller) newInstance(ctx context.Context, hostID types.HostID) error {
-	en := logEntity{
-		Time:    time.Now(),
-		Phase:   phUpdateNodeConfig,
-		Success: true,
-	}
-	c.appendLog(&en)
-	spec, err := c.getHostDeployspec(hostID)
-	if err != nil {
-		en.Message = err.Error()
-		en.Success = false
-		return err
-	}
-
-	nv := types.DeployVer(c.deployConfig.Image.Version.String())
-	ov := spec.Info[nv]
-	spec.Info[nv] = ov + 1
-	if err := c.setHostDeployspec(hostID, spec); err != nil {
-		en.Message = err.Error()
-		en.Success = false
-		return err
-	}
-
-	c.hostConfig[hostID] = spec
-	en.Message = "udpate success"
-	en.Success = true
-
-	// start to waiting for instance up
-	c.waitInstanceUp(ctx, hostID)
-	return nil
+func (c *controller) newDeploy(ctx context.Context) error {
+	num := c.deployConfig.NumOfInstance
+	return c.newInstances(ctx, num)
 }
 
-// waitInstanceUp block until instance is up,  and  probe  success
-// for onetime instance, it may exist shortly after start, in this case, we think it is up
-// todo: better way to  recognize the new started instance, before start the instance, we can
-// generate a instanceID and set it to instance's envmap, so we can parse envmap for the new
-// started instances
-// for now we just compare instances version  and  startTime
-func (c *controller) waitInstanceUp(ctx context.Context, hostID types.HostID) error {
-	path := etcdkey.DeployInstanceDirOfKey(c.stage, c.key)
-
-	req := labels.Set{"hostID": string(hostID)}
-	pred := generic.SelectionPredicate{
-		Label: req.AsSelector(),
-		Field: fields.Everything(),
-		GetAttrs: func(obj interface{}) (labels.Set, fields.Set, error) {
-			ins := obj.(*types.HostInfo)
-			return labels.Set{"hostID": string(ins.HostID)}, nil, nil
-		},
-	}
-
+func (c *controller) mixUpdate(ctx context.Context) error {
 	dc := c.deployConfig
-	nv := types.DeployVer(dc.Image.Version.String())
+	upo := dc.UpdatePolicy
+	ins, err := c.getRunningProcess()
+	if err != nil {
+		return err
+	}
 
-	h := func(e watch.Event) error {
-		dat, ok := e.Object.(*types.Instance)
-		if !ok {
-			glog.Fatalf("event object must be an instance of *types.Instance, got %T", e.Object)
-		}
+	numNew := int(math.Ceil(float64(dc.NumOfInstance) * upo.NewPercent))
+	numUpdate := dc.NumOfInstance - numNew
+	if numNew+len(ins) < dc.NumOfInstance {
+		numNew = dc.NumOfInstance - len(ins)
+		numUpdate = dc.NumOfInstance - numNew
+	}
 
-		switch e.Type {
-		case watch.Added, watch.Modified:
-			rv := types.DeployVer(dat.Version)
-			if rv != nv {
-				return nil
-			}
+	err = c.newInstances(ctx, numNew)
+	if err != nil {
+		return err
+	}
 
-			if dc.RestartPolicy.Type == types.OneTime {
-				if dat.StartTime.Add(10 * time.Second).After(time.Now()) {
-
-					return errStop
-				}
-			} else {
-				// todo: so we should not start two instance withing 2mins
-				// or if host date is not sync,
-				if dat.StartTime.Add(2 * time.Minute).After(time.Now()) {
-					if dat.LifeCycle == types.LCRunning {
-						return errStop
-					}
-					return nil
-				}
-			}
-		}
-
+	if numUpdate <= 0 {
 		return nil
 	}
 
-	return watchEvent(ctx, path, pred, reflect.TypeOf(types.Instance{}), h)
+	ins2Update := ins[:numUpdate]
+	return c.updateInstances(ctx, ins2Update)
 }
 
 func (c *controller) updateInstances(ctx context.Context, ins []*types.Instance) error {
@@ -366,70 +218,229 @@ func (c *controller) updateInstances(ctx context.Context, ins []*types.Instance)
 	return nil
 }
 
+// newInstances deploy num new instances
 func (c *controller) newInstances(ctx context.Context, num int) error {
-	//	req := toRequire(dc)
-	scheduler := newScheduler()
+	req := toRequire(c.deployConfig)
+	scheduler := newScheduler(c.stage, c.key, req)
 	var merr *multierror.Error
 	for num > 0 {
+		select {
+		case <-ctx.Done():
+			merr = multierror.Append(merr, ctx.Err())
+			return merr.ErrorOrNil()
+		default:
+			en := logEntity{
+				Time:  time.Now(),
+				Phase: phSchedulerHosts,
+			}
+			c.appendLog(&en)
+			h, err := scheduler.NextHost()
+			if err != nil {
+				merr = multierror.Append(merr, err)
+				en.Success = false
+				en.Message = err.Error()
+				continue
+			}
 
-		en := logEntity{
-			Time:  time.Now(),
-			Phase: phSchedulerHosts,
+			if err = c.newInstance(ctx, h); err != nil {
+				merr = multierror.Append(merr, err)
+			}
+			num--
 		}
-		c.appendLog(&en)
-		h, err := scheduler.NextHost()
-		if err != nil {
-			merr = multierror.Append(merr, err)
-			en.Success = false
-			en.Message = err.Error()
-			continue
-		}
-
-		if err = c.newInstance(ctx, h); err != nil {
-			merr = multierror.Append(merr, err)
-		}
-		num--
 	}
 
 	return merr.ErrorOrNil()
 }
 
-func (c *controller) rollingUpdate(ctx context.Context, dryrun bool) error {
-	oldIns, err := c.getRunningProcess()
+func (c *controller) newInstance(ctx context.Context, hostID types.HostID) error {
+	en := logEntity{
+		Time:    time.Now(),
+		Phase:   phUpdateNodeConfig,
+		Success: true,
+	}
+	c.appendLog(&en)
+	spec, err := c.getHostDeployspec(hostID)
 	if err != nil {
+		en.Message = err.Error()
+		en.Success = false
 		return err
 	}
 
-	return c.updateInstances(ctx, oldIns)
+	if spec == nil {
+		spec = &types.DeploySpec{}
+	}
+
+	nv := types.DeployVer(c.deployConfig.Image.Version.String())
+	num := spec.Info[nv]
+	spec.Info[nv] = num + 1
+
+	if err := c.setHostDeployspec(hostID, spec); err != nil {
+		en.Message = err.Error()
+		en.Success = false
+		return err
+	}
+
+	c.hostConfig[hostID] = spec
+	en.Message = "udpate success"
+	en.Success = true
+
+	// start to waiting for instance up
+	c.waitInstanceUp(ctx, hostID)
+	return nil
 }
 
-func (c *controller) newDeploy(ctx context.Context, dryrun bool) error {
-	dc := c.deployConfig
-	num := dc.NumOfInstance
-	return c.newInstances(ctx, num)
-}
-
-func (c *controller) mixUpdate(ctx context.Context, dryrun bool) error {
-	dc := c.deployConfig
-	upo := dc.UpdatePolicy
-	ins, err := c.getRunningProcess()
+func (c *controller) StopInstance(ctx context.Context, ins *types.Instance) error {
+	en := logEntity{
+		Time:    time.Now(),
+		Phase:   phUpdateNodeConfig,
+		Success: true,
+	}
+	c.appendLog(&en)
+	spec, err := c.getHostDeployspec(ins.HostID)
 	if err != nil {
+		en.Message = err.Error()
+		en.Success = false
 		return err
 	}
 
-	numNew := int(math.Ceil(float64(dc.NumOfInstance) * upo.NewPercent))
-	if numNew+len(ins) < dc.NumOfInstance {
-		numNew = dc.NumOfInstance - len(ins)
+	rv := types.DeployVer(ins.Version)
+	v, ok := spec.Info[rv]
+	if !ok {
+		return nil
 	}
 
-	err = c.newInstances(ctx, numNew)
-	if err != nil {
+	v--
+	if v <= 0 {
+		delete(spec.Info, rv)
+	}
+
+	if err := c.setHostDeployspec(ins.HostID, spec); err != nil {
+		en.Message = err.Error()
+		en.Success = false
 		return err
 	}
 
-	//
+	if len(spec.Info) == 0 {
+		delete(c.hostConfig, ins.HostID)
+	} else {
+		c.hostConfig[ins.HostID] = spec
+	}
+
+	en.Message = "udpate host deploy config success"
+	en.Success = true
 
 	return nil
+}
+
+// updateInstance update an instance it stop the old version instance and start a new version instance
+// if old version and new version is different
+func (c *controller) updateInstance(ctx context.Context, ins *types.Instance) error {
+	en := logEntity{
+		Time:    time.Now(),
+		Phase:   phUpdateNodeConfig,
+		Success: true,
+	}
+	c.appendLog(&en)
+	spec, err := c.getHostDeployspec(ins.HostID)
+	if err != nil {
+		en.Message = err.Error()
+		en.Success = false
+		return err
+	}
+
+	nv := types.DeployVer(c.deployConfig.Image.Version.String())
+	rv := types.DeployVer(ins.Version)
+	v, ok := spec.Info[rv]
+	if !ok || v <= 0 {
+		versions := make([]string, 0, len(spec.Info))
+		for k := range spec.Info {
+			versions = append(versions, string(k))
+		}
+		vers := strings.Join(versions, ",")
+		en.Message = fmt.Sprintf("instance %v has version %v, but not in config: %v, of num of configed instance is 0", ins.Pid, rv, vers)
+		en.Success = false
+		return errors.New("")
+	}
+
+	v--
+	if v <= 0 {
+		delete(spec.Info, rv)
+	}
+
+	ov := spec.Info[nv]
+	spec.Info[nv] = ov + 1
+	if err := c.setHostDeployspec(ins.HostID, spec); err != nil {
+		en.Message = err.Error()
+		en.Success = false
+		return err
+	}
+
+	c.hostConfig[ins.HostID] = spec
+
+	en.Message = "udpate success"
+	en.Success = true
+
+	// start to waiting for instance up
+	c.waitInstanceUp(ctx, ins.HostID)
+	return nil
+}
+
+// waitInstanceUp block until instance is up,  and  probe  success
+// for onetime instance, it may exist shortly after start, in this case, we think it is up
+// todo: better way to  recognize the new started instance, before start the instance, we can
+// generate a instanceID and set it to instance's envmap, so we can parse envmap for the new
+// started instances
+// for now we just compare instances version  and  startTime
+func (c *controller) waitInstanceUp(ctx context.Context, hostID types.HostID) error {
+	path := etcdkey.DeployInstanceDirOfKey(c.stage, c.key)
+
+	req := labels.Set{"hostID": string(hostID)}
+	pred := generic.SelectionPredicate{
+		Label: req.AsSelector(),
+		Field: fields.Everything(),
+		GetAttrs: func(obj interface{}) (labels.Set, fields.Set, error) {
+			ins := obj.(*types.HostInfo)
+			return labels.Set{"hostID": string(ins.HostID)}, nil, nil
+		},
+	}
+
+	dc := c.deployConfig
+	nv := types.DeployVer(dc.Image.Version.String())
+
+	h := func(e watch.Event) error {
+		dat, ok := e.Object.(*types.Instance)
+		if !ok {
+			glog.Fatalf("event object must be an instance of *types.Instance, got %T", e.Object)
+		}
+
+		switch e.Type {
+		case watch.Added, watch.Modified:
+			rv := types.DeployVer(dat.Version)
+			if rv != nv {
+				return nil
+			}
+
+			if dc.RestartPolicy.Type == types.OneTime {
+				if dat.StartTime.Add(10 * time.Second).After(time.Now()) {
+
+					return errStop
+				}
+			} else {
+				// todo: so we should not start two instance withing 2mins
+				// or if host date is not sync,
+				if dat.StartTime.Add(2 * time.Minute).After(time.Now()) {
+					if dat.LifeCycle == types.LCRunning {
+						return errStop
+					}
+					return nil
+				}
+			}
+		}
+
+		return nil
+	}
+
+	return watchEvent(ctx, path, pred, reflect.TypeOf(types.Instance{}), h)
 }
 
 func (c *controller) setHostDeployspec(hostID types.HostID, spec *types.DeploySpec) error {
@@ -459,27 +470,6 @@ func (c *controller) getHostDeployspec(hostID types.HostID) (*types.DeploySpec, 
 	return &ret, nil
 }
 
-func (c *controller) addNewInstances(host types.HostID, info types.DeploySpec) (*types.DeploySpec, error) {
-	old, err := c.getHostDeployspec(host)
-	if err != nil {
-		return nil, err
-	}
-	if old == nil {
-		old = &types.DeploySpec{}
-	}
-
-	for k, v := range info.Info {
-		t := old.Info[k]
-		old.Info[k] = t + v
-	}
-
-	err = c.setHostDeployspec(host, old)
-	if err != nil {
-		return nil, err
-	}
-	return old, nil
-}
-
 func (c *controller) getRunningProcess() ([]*types.Instance, error) {
 	return getRunningInstances(c.stage, c.key)
 }
@@ -496,25 +486,9 @@ func (c *controller) getDeployConfig() (*types.DeployConfig, error) {
 	return &ret, nil
 }
 
-type runner struct {
-	ctx context.Context
-	c   chan struct{}
-}
-
-func newRunner(ctx context.Context, worker int) *runner {
-	if worker <= 0 {
-		return nil
+func (c *controller) appendLog(en *logEntity) {
+	c.logs.PushBack(en)
+	for c.logs.Len() > c.maxlogs {
+		c.logs.Remove(c.logs.Front())
 	}
-
-	return &runner{c: make(chan struct{}, worker), ctx: ctx}
-}
-
-func (r *runner) run(f func() error) <-chan error {
-	r.c <- struct{}{}
-	c := make(chan error, 1)
-	go func() {
-		c <- f()
-		<-r.c
-	}()
-	return c
 }

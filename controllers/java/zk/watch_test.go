@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/coreos/etcd/clientv3"
-	zkcfg "we.com/dolphin/controllers/zk/types"
+	zkcfg "we.com/dolphin/controllers/java/zk/types"
 	"we.com/dolphin/registry/generic"
 	"we.com/jiabiao/common/yaml"
 )

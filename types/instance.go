@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/pborman/uuid"
-	"github.com/pkg/errors"
 	"we.com/jiabiao/common/probe"
 )
 
@@ -157,11 +156,6 @@ func (ins *Instance) StopCmdArgs() [3]string {
 	ret[2] = string(ins.Pid)
 
 	return ret
-}
-
-// UnmarshalJSON disable  UnmarshalJSON
-func (ins *Instance) UnmarshalJSON(data []byte) error {
-	return errors.New("instance should not Unmarshal")
 }
 
 // NewInstanceID create an new instanceID before instance start

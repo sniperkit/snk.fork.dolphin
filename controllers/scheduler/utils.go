@@ -16,7 +16,7 @@ import (
 	"we.com/dolphin/types/ins/registry"
 )
 
-func loadDeployConfig(stage types.Stage, key types.DeployKey) (map[types.HostID]*types.DeploySpec, error) {
+func loadHostDeploySpec(stage types.Stage, key types.DeployKey) (map[types.HostID]*types.DeploySpec, error) {
 	dir := etcdkey.DeployHostExpectDir(stage)
 	ret := make(map[types.HostID]*types.DeploySpec)
 	store, err := getStore()
@@ -46,21 +46,23 @@ func loadDeployConfig(stage types.Stage, key types.DeployKey) (map[types.HostID]
 
 func getRunningInstances(stage types.Stage, key types.DeployKey) ([]*types.Instance, error) {
 	path := etcdkey.DeployInstanceDirOfKey(stage, key)
-	ret := []*types.Instance{}
+	out := []*registry.Instance{}
 
 	store, err := getStore()
 	if err != nil {
 		return nil, err
 	}
 
-	if err := store.List(context.Background(), path, generic.Everything, &ret); err != nil {
+	if err := store.List(context.Background(), path, generic.Everything, &out); err != nil {
 		return nil, err
 	}
 
+	ret := []*types.Instance{}
+
 	// skip stopped instances
-	for _, v := range ret {
+	for _, v := range out {
 		if v.LifeCycle != types.LCStopped {
-			ret = append(ret, v)
+			ret = append(ret, (*types.Instance)(v))
 		}
 	}
 	return ret, nil

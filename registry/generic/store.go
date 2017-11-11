@@ -63,6 +63,7 @@ type store struct {
 }
 
 type elemForDecode struct {
+	key  []byte
 	data []byte
 	rev  uint64
 }
@@ -266,6 +267,7 @@ func (s *store) List(ctx context.Context, key string, pred SelectionPredicate, l
 	elems := make([]*elemForDecode, len(getResp.Kvs))
 	for i, kv := range getResp.Kvs {
 		elems[i] = &elemForDecode{
+			key:  kv.Key,
 			data: kv.Value,
 			rev:  uint64(kv.ModRevision),
 		}
@@ -426,12 +428,13 @@ func decodeMap(elems []*elemForDecode, filter FilterFunc, mapObj interface{}) er
 	if err != nil || v.Kind() != reflect.Map {
 		panic("need a map")
 	}
-	for key, elem := range elems {
+	for _, elem := range elems {
 		obj := reflect.New(v.Type().Elem()).Interface()
 		err := decode(elem.data, obj)
 		if err != nil {
 			return err
 		}
+		key := string(elem.key)
 		// being unable to set the version does not prevent the object from being extracted
 		if filter(obj) {
 			v.SetMapIndex(reflect.ValueOf(key), reflect.ValueOf(obj).Elem())

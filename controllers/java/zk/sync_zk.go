@@ -11,7 +11,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samuel/go-zookeeper/zk"
 
-	zkcfg "we.com/dolphin/controllers/zk/types"
+	zkcfg "we.com/dolphin/controllers/java/zk/types"
 	"we.com/dolphin/registry/generic"
 )
 

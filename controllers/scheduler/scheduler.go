@@ -31,8 +31,12 @@ type scheduler struct {
 	key        types.DeployKey
 }
 
-func newScheduler() ctypes.Scheduler {
-	return &scheduler{}
+func newScheduler(stage types.Stage, key types.DeployKey, rq *ctypes.Require) ctypes.Scheduler {
+	return &scheduler{
+		require: rq,
+		stage:   stage,
+		key:     key,
+	}
 }
 
 func (s *scheduler) selectHost(r labels.Selector) ([]types.HostID, error) {
@@ -147,7 +151,6 @@ func (s *scheduler) findSuitableHost() (types.HostID, error) {
 }
 
 func (s *scheduler) NextHost() (types.HostID, error) {
-
 	if len(s.avaliable) == 0 {
 		hosts, err := s.selectHost(s.require.HostSelector)
 		if err != nil {
