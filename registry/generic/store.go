@@ -1,6 +1,7 @@
 package generic
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"path"
@@ -265,9 +266,11 @@ func (s *store) List(ctx context.Context, key string, pred SelectionPredicate, l
 	}
 
 	elems := make([]*elemForDecode, len(getResp.Kvs))
+	prefix := []byte(key)
 	for i, kv := range getResp.Kvs {
+		k := bytes.TrimPrefix(kv.Key, prefix)
 		elems[i] = &elemForDecode{
-			key:  kv.Key,
+			key:  k,
 			data: kv.Value,
 			rev:  uint64(kv.ModRevision),
 		}
