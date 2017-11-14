@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	ctypes "we.com/dolphin/controllers/types"
 	"we.com/dolphin/types"
 )
 
@@ -34,26 +35,31 @@ func (r *runner) run(f func() error) <-chan error {
 
 // Manager managers controllers
 type Manager interface {
+	// Deploy deploy a new key
 	Deploy(ctx context.Context, dc *types.DeployConfig) error
+	// Update update a deployconfig and trigger a new deployment
 	Update(ctx context.Context, dc *types.DeployConfig) error
-	Stop(ctx context.Context, key types.DeployKey, insID types.InstanceID) error
-	StopLegacy(ctx context.Context, key types.DeployKey) error
+	// RevokeLegacyLease  trigger an instance stop of legacy instaces
+	RevokeLegacyLease(key types.DeployKey) error
+	// RenewLegacyLease  reset lease timeout
+	RenewLegacyLease(key types.DeployKey) error
+	// Destroy delete replicaCtrl and  stop all running instaces
 	Destroy(ctx context.Context, key types.DeployKey) error
-	Log(ctx context.Context, key types.DeployKey, n int) chan<- logEntity
 }
 
 type manager struct {
 	stage       types.Stage
-	wg          sync.WaitGroup
+	lease       time.Duration
 	lock        sync.RWMutex
-	controllers map[types.DeployKey]*controller
+	info        ctypes.InstanceInfor
+	hcManager   ctypes.HostConfigManager
+	controllers map[types.DeployKey]*replicaCtrl
 	runner      *runner
 	stopC       chan struct{}
 }
 
 func (m *manager) Stop() {
 	close(m.stopC)
-	m.wg.Wait()
 }
 
 func (m *manager) Deploy(ctx context.Context, dc *types.DeployConfig) error {
@@ -67,36 +73,31 @@ func (m *manager) Deploy(ctx context.Context, dc *types.DeployConfig) error {
 
 	key := dc.Key()
 
-	m.lock.Lock()
-	_, ok := m.controllers[key]
-	if !ok {
-		// 先占个坑
-		m.controllers[key] = nil
-	}
-	m.lock.Unlock()
-	if ok {
-		return errors.Errorf("scheduler: %v, doployment %v already exists", m.stage.String(), key)
-	}
-
-	c, err := newController(dc, option{
-		maxTries:            3,
-		legacyVerionTimeout: 2 * time.Hour,
-		dryMode:             false,
-	})
-
-	m.lock.Lock()
-	if err != nil {
-		delete(m.controllers, key)
-	} else {
-		m.controllers[key] = c
-	}
-	m.lock.Unlock()
-
+	_, err := m.controlerReady(key)
 	if err != nil {
 		return err
 	}
 
-	return m.Update(ctx, dc)
+	c, err := newReplicaCtrl(dc, m.info, m.hcManager, option{
+		maxTries:            3,
+		legacyVerionTimeout: m.lease,
+		dryMode:             false,
+	})
+
+	if err != nil {
+		m.deleteController(key)
+		return err
+	}
+	c.hcManager = m.hcManager
+
+	err = m.Update(ctx, dc)
+	if err != nil {
+		m.updateController(key, c)
+		return err
+	}
+
+	m.updateController(key, c)
+	return nil
 }
 
 func (m *manager) Update(ctx context.Context, dc *types.DeployConfig) error {
@@ -109,13 +110,11 @@ func (m *manager) Update(ctx context.Context, dc *types.DeployConfig) error {
 	}
 
 	if dc.Stage != m.stage {
-		return errors.Errorf("scheduler: wrong stage %v for manager %v", dc.Stage.String(), m.stage.String())
+		return errors.Errorf("sched: wrong stage %v for manager %v", dc.Stage.String(), m.stage.String())
 	}
 
 	key := dc.Key()
-	m.lock.RLock()
-	c, ok := m.controllers[key]
-	m.lock.RUnlock()
+	c, ok := m.getController(key)
 	if !ok {
 		return errors.Errorf("sched: unknown %v for env %v", key, m.stage.String())
 	}
@@ -123,18 +122,54 @@ func (m *manager) Update(ctx context.Context, dc *types.DeployConfig) error {
 	return c.Deploy(ctx, dc)
 }
 
-func (m *manager) StopInstance(ctx context.Context, key types.DeployKey, insID types.InstanceID) error {
+func (m *manager) RevokeLegacy(key types.DeployKey) error {
+	c, err := m.controlerReady(key)
+	if err != nil {
+		return err
+	}
+	c.revokeLease()
 	return nil
 }
 
-func (m *manager) getController(key types.DeployKey) (*controller, bool) {
+func (m *manager) RenewLegacyLease(key types.DeployKey) error {
+	c, err := m.controlerReady(key)
+	if err != nil {
+		return err
+	}
+	c.renewLease()
+	return nil
+}
+
+func (m *manager) Destroy(ctx context.Context, key types.DeployKey) error {
+	c, err := m.controlerReady(key)
+	if err != nil {
+		return err
+	}
+
+	return c.Destroy()
+}
+
+func (m *manager) controlerReady(key types.DeployKey) (*replicaCtrl, error) {
+	c, ok := m.getController(key)
+	if c != nil {
+		return c, nil
+	}
+
+	if !ok {
+		return nil, errors.Errorf("sched: env=%v, unknown deployment %v", m.stage, key)
+	}
+
+	return nil, errors.Errorf("sched: env=%v, %v deployment in process,  please try again later", m.stage, key)
+}
+
+func (m *manager) getController(key types.DeployKey) (*replicaCtrl, bool) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 	c, ok := m.controllers[key]
 	return c, ok
 }
 
-func (m *manager) updateController(key types.DeployKey, c *controller) (old *controller) {
+func (m *manager) updateController(key types.DeployKey, c *replicaCtrl) (old *replicaCtrl) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	old = m.controllers[key]
@@ -142,14 +177,10 @@ func (m *manager) updateController(key types.DeployKey, c *controller) (old *con
 	return
 }
 
-func (m *manager) deleteController(key types.DeployKey) (old *controller) {
+func (m *manager) deleteController(key types.DeployKey) (old *replicaCtrl) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	old = m.controllers[key]
 	delete(m.controllers, key)
 	return
-}
-
-func (m *manager) move(key types.DeployKey, from types.HostID, to types.HostID) error {
-	return nil
 }

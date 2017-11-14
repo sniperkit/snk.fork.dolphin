@@ -19,3 +19,4 @@ func UpdateHostImages() {
 func evaluator(hostID types.HostID)  score() {
 	
 }
+// wall host  time

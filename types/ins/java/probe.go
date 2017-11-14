@@ -3,7 +3,6 @@ package java
 import (
 	"errors"
 	"fmt"
-	"net/http/httputil"
 	"strings"
 	"sync"
 
@@ -12,6 +11,18 @@ import (
 	"we.com/jiabiao/common/probe"
 	"we.com/jiabiao/common/probe/java"
 )
+
+// ProbeInterfaceProvider from which get can get interface to dial
+type ProbeInterfaceProvider interface {
+	GetProbeInterfaces(key types.DeployName) ProbeInterfaces
+}
+
+var (
+	diProvider ProbeInterfaceProvider
+)
+
+// ProbeInterfaces probes interfaces of a given deployment
+type ProbeInterfaces map[string]*ProbeInterface
 
 // ProbeInterface  a single  probe interface
 type ProbeInterface struct {
@@ -83,6 +94,9 @@ type Prober struct {
 }
 
 func (p *Prober) lg(ins *types.Instance) (probe.LoadGenerator, error) {
+	if diProvider == nil {
+		return nil, nil
+	}
 	ii, ok := ins.Private.(*InstanceInfo)
 	if !ok {
 		return nil, errors.New("not an java instance")
@@ -99,7 +113,7 @@ func (p *Prober) lg(ins *types.Instance) (probe.LoadGenerator, error) {
 	return func() interface{} {
 		addr := ins.Listening[0]
 		url := fmt.Sprintf("http://%v:%v", addr.IP, addr.Port)
-		dis := p.getProbeInterfaces(ins.Stage, ins.DeployName)
+		dis := diProvider.GetProbeInterfaces(ins.DeployName)
 
 		ret := make([]*java.Args, 0, len(dis))
 		for _, di := range dis {
@@ -133,10 +147,4 @@ func (p *Prober) Probe(ins *types.Instance) (probe.Result, error) {
 
 	ret, _, err := java.Probe(lg)
 	return ret, err
-}
-
-// ProxyProbe a reverse proxy server
-// which accept an incomming http request, and send it to another server
-type ProxyProbe struct {
-	httputil.ReverseProxy
 }

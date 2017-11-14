@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/coreos/etcd/clientv3"
 	"we.com/dolphin/registry/generic"
@@ -33,4 +34,15 @@ func Test_loadDeployConfig(t *testing.T) {
 		t.Logf("%v: %s", k, d)
 
 	}
+}
+
+func Test_timer(t *testing.T) {
+	ch := make(chan bool)
+	tm := time.AfterFunc(time.Second, func() {
+		defer func() { ch <- false }()
+		t.Logf("after timer")
+	})
+
+	tm.Reset(5 * time.Second)
+	<-ch
 }

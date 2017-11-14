@@ -28,14 +28,16 @@ type scheduler struct {
 	avaliable  []types.HostID
 	bestEffect bool
 	stage      types.Stage
+	info       ctypes.InstanceInfor
 	key        types.DeployKey
 }
 
-func newScheduler(stage types.Stage, key types.DeployKey, rq *ctypes.Require) ctypes.Scheduler {
+func newScheduler(stage types.Stage, key types.DeployKey, rq *ctypes.Require, info ctypes.InstanceInfor) ctypes.Scheduler {
 	return &scheduler{
 		require: rq,
 		stage:   stage,
 		key:     key,
+		info:    info,
 	}
 }
 
@@ -111,9 +113,12 @@ func checkHostStatus(stage types.Stage, hid types.HostID, require types.DeployRe
 
 func (s *scheduler) findSuitableHost() (types.HostID, error) {
 	r := s.require
-	ins, err := getRunningInstances(s.stage, s.key)
-	if err != nil {
-		return emptyHost, err
+	allIns := s.info.RunningInstance(s.key)
+	ins := make([]*types.Instance, 0, len(allIns))
+	for _, v := range allIns {
+		if v.LifeCycle != types.LCStopped {
+			ins = append(ins, v)
+		}
 	}
 
 	maxTry := 50
@@ -121,6 +126,7 @@ func (s *scheduler) findSuitableHost() (types.HostID, error) {
 
 	avaliable := s.avaliable
 	defer func() { s.avaliable = avaliable }()
+	var err error
 
 	for len(avaliable) > 0 && maxTry > 0 {
 		maxTry--
