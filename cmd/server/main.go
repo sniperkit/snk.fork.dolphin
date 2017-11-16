@@ -15,16 +15,39 @@ import (
 	"we.com/dolphin/api/deploy"
 	"we.com/dolphin/api/host"
 	"we.com/dolphin/api/java"
+	"we.com/dolphin/controllers/java/zk"
 	"we.com/dolphin/logger"
 	"we.com/dolphin/registry/generic"
 	_ "we.com/dolphin/types/all"
+	"we.com/jiabiao/common/yaml"
 )
 
 var (
 	srvaddr = flag.String("srv.addr", ":8989", "addr to listen to")
+	cfgFile = flag.String("c", "/etc/dolphin/dolphin.yml", "config file address")
 )
 
 func reload(stopC chan struct{}) error {
+	f, err := os.Open(*cfgFile)
+	defer f.Close()
+	if err != nil {
+		return err
+	}
+	d := yaml.NewYAMLOrJSONDecoder(f, 4)
+	cfg := config{}
+	if err := d.Decode(&cfg); err != nil {
+		return err
+	}
+
+	pi, err := zk.NewZKPathInfor()
+	if err != nil {
+		return err
+	}
+
+	if err := zk.Start(cfg.ZKs); err != nil {
+		return err
+	}
+
 	return nil
 }
 

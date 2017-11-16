@@ -43,7 +43,7 @@ func IsInitialized() bool {
 
 // SetEtcdConfigFile first load config from  file and then set etcd config
 func SetEtcdConfigFile(file string) error {
-	cfg, err := NewEtcdConfig(file)
+	cfg, err := NewEtcdConfigFromFile(file)
 	if err != nil {
 		err := fmt.Errorf("load etcd config err: %v", err)
 		glog.Fatalf("%v", err)

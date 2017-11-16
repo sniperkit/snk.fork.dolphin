@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 
 	multierror "github.com/hashicorp/go-multierror"
 	"we.com/dolphin/types"
@@ -52,45 +51,8 @@ func (pi *ProbeInterface) Validate() error {
 	return err.ErrorOrNil()
 }
 
-// GetProbeInterfaces return probeinterface of bin and env
-func (p *Prober) getProbeInterfaces(stage types.Stage, key types.DeployName) []*ProbeInterface {
-	if p == nil {
-		return nil
-	}
-
-	p.lock.RLock()
-
-	k := dikey{
-		stage: stage,
-		dname: key,
-	}
-	pis, ok := p.dialInterfaces[k]
-	p.lock.RUnlock()
-	if !ok {
-		return nil
-	}
-
-	ret := []*ProbeInterface{}
-	for _, v := range pis {
-		if len(v.Stages) == 0 {
-			// copy
-			t := *v
-			ret = append(ret, &t)
-			continue
-		}
-	}
-	return ret
-}
-
-type dikey struct {
-	stage types.Stage
-	dname types.DeployName
-}
-
 // Prober probe a java server
 type Prober struct {
-	dialInterfaces map[dikey]map[string]*ProbeInterface
-	lock           sync.RWMutex
 }
 
 func (p *Prober) lg(ins *types.Instance) (probe.LoadGenerator, error) {

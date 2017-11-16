@@ -1,11 +1,11 @@
 package generic
 
 import (
-	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
+	"io"
+	"os"
 	"time"
 
 	"github.com/coreos/etcd/clientv3"
@@ -45,21 +45,11 @@ type etcdConfig struct {
 }
 
 // NewEtcdConfig get etcd config from this config
-func NewEtcdConfig(filename string) (clientv3.Config, error) {
+func NewEtcdConfig(r io.Reader) (clientv3.Config, error) {
 	ret := clientv3.Config{}
-	content, err := ioutil.ReadFile(filename)
-	if err != nil {
-		err := fmt.Errorf("error read etcd config file: %v", err)
-		glog.Error(err.Error())
-		return ret, err
-	}
-
-	reader := bytes.NewReader(content)
-
 	yc := etcdConfig{}
-
-	decoder := yaml.NewYAMLOrJSONDecoder(reader, 4)
-	err = decoder.Decode(&yc)
+	decoder := yaml.NewYAMLOrJSONDecoder(r, 4)
+	err := decoder.Decode(&yc)
 	if err != nil {
 		err := fmt.Errorf("error parse etcd config: %v", err)
 		glog.Error(err.Error())
@@ -111,4 +101,16 @@ func NewEtcdConfig(filename string) (clientv3.Config, error) {
 	new.TLS = tlscfg
 
 	return new, nil
+}
+
+// NewEtcdConfigFromFile get etcd config from this config
+func NewEtcdConfigFromFile(filename string) (clientv3.Config, error) {
+	f, err := os.Open(filename)
+	defer f.Close()
+	if err != nil {
+		return clientv3.Config{}, err
+	}
+
+	return NewEtcdConfig(f)
+
 }
