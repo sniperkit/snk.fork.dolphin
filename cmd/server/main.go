@@ -8,16 +8,22 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
+	"github.com/hashicorp/go-multierror"
 	"github.com/prometheus/client_golang/prometheus"
 	"we.com/dolphin/api/deploy"
 	"we.com/dolphin/api/host"
 	"we.com/dolphin/api/java"
 	"we.com/dolphin/controllers/java/zk"
+	"we.com/dolphin/controllers/scheduler"
+	ctypes "we.com/dolphin/controllers/types"
+	"we.com/dolphin/controllers/types/impl"
 	"we.com/dolphin/logger"
 	"we.com/dolphin/registry/generic"
+	"we.com/dolphin/types"
 	_ "we.com/dolphin/types/all"
 	"we.com/jiabiao/common/yaml"
 )
@@ -25,6 +31,12 @@ import (
 var (
 	srvaddr = flag.String("srv.addr", ":8989", "addr to listen to")
 	cfgFile = flag.String("c", "/etc/dolphin/dolphin.yml", "config file address")
+)
+
+var (
+	insInfos   map[types.Stage]ctypes.InstanceInfor
+	hcManagers map[types.Stage]ctypes.HostConfigManager
+	schedulers map[types.Stage]scheduler.Manager
 )
 
 func reload(stopC chan struct{}) error {
@@ -44,8 +56,27 @@ func reload(stopC chan struct{}) error {
 		return err
 	}
 
-	if err := zk.Start(cfg.ZKs); err != nil {
+	if err := zk.Start(&cfg.ZKs); err != nil {
 		return err
+	}
+
+	// TODO
+	var merr *multierror.Error
+	infos := map[types.Stage]ctypes.InstanceInfor{}
+	for e, zk := range cfg.ZKs.Envs {
+		infor := impl.NewInfor(e)
+		insInfos[e] = infor
+		m, err := impl.NewHCManager(e)
+		if err != nil {
+		}
+		hcManagers[e] = m
+
+		sched, err := scheduler.NewSchedular(e, time.Hour, infor, m)
+		if err != nil {
+			merr = multierror.Append(merr, err)
+			continue
+		}
+		schedulers[e] = sched
 	}
 
 	return nil

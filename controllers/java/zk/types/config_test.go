@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"os"
 	"testing"
 
@@ -25,4 +26,10 @@ func TestConfig_Validate(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
+
+	d, err := json.MarshalIndent(cfg, "", "\t")
+	if err != nil {
+		t.Error(err)
+	}
+	t.Logf("cfg: %v", string(d))
 }

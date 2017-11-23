@@ -109,7 +109,7 @@ func Test_parseRouteItem(t *testing.T) {
 	}
 }
 
-func Test_parse(t *testing.T) {
+func Test_Parse(t *testing.T) {
 	type args struct {
 		val     string
 		version string
@@ -189,7 +189,7 @@ func Test_parse(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parse(tt.args.val, tt.args.version)
+			got, err := Parse(tt.args.val, tt.args.version)
 			t.Logf("got: %v", got)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("parse() error = %v, wantErr %v", err, tt.wantErr)

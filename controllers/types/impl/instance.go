@@ -1,4 +1,4 @@
-package scheduler
+package impl
 
 import (
 	"context"
@@ -40,6 +40,7 @@ func (m *insManager) GetInstance(key types.DeployKey, insID types.InstanceID) *t
 	}
 	return s[insID]
 }
+
 func (m *insManager) Start(ctx context.Context) error {
 	go m.watch(ctx)
 	return nil
@@ -58,7 +59,7 @@ func (m *insManager) NewStartedInstance(key types.DeployKey, d time.Duration) []
 }
 
 func (m *insManager) NewStoppedInstance(key types.DeployKey, d time.Duration) []*types.Instance {
-	tmp := m.RecetStoppedInstance(key)
+	tmp := m.RecentStoppedInstance(key)
 	now := time.Now()
 	var ret []*types.Instance
 	for _, v := range tmp {
@@ -85,7 +86,19 @@ func (m *insManager) RunningInstance(key types.DeployKey) map[types.InstanceID]*
 	return ret
 }
 
-func (m *insManager) RecetStoppedInstance(key types.DeployKey) map[types.InstanceID]*types.Instance {
+func (m *insManager) ListDeploykeys() []types.DeployKey {
+	ret := make([]types.DeployKey, 0, len(m.instances))
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	for k := range m.instances {
+		ret = append(ret, k)
+	}
+
+	return ret
+}
+
+func (m *insManager) RecentStoppedInstance(key types.DeployKey) map[types.InstanceID]*types.Instance {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 	s, ok := m.instances[key]

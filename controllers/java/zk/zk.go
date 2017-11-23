@@ -26,6 +26,11 @@ func NewClient(machines []string) (*Client, error) {
 	if err != nil {
 		panic(err)
 	}
+	b, s, err := c.Get("/service/com.dc-item/1_5")
+	if err != nil {
+		panic(err)
+	}
+	glog.Infof("%v: %v", b, s)
 	return &Client{c}, nil
 }
 

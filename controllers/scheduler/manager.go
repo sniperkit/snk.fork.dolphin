@@ -10,29 +10,6 @@ import (
 	"we.com/dolphin/types"
 )
 
-type runner struct {
-	ctx context.Context
-	c   chan struct{}
-}
-
-func newRunner(ctx context.Context, worker int) *runner {
-	if worker <= 0 {
-		return nil
-	}
-
-	return &runner{c: make(chan struct{}, worker), ctx: ctx}
-}
-
-func (r *runner) run(f func() error) <-chan error {
-	r.c <- struct{}{}
-	c := make(chan error, 1)
-	go func() {
-		c <- f()
-		<-r.c
-	}()
-	return c
-}
-
 // Manager managers controllers
 type Manager interface {
 	// Deploy deploy a new key
@@ -54,12 +31,25 @@ type manager struct {
 	info        ctypes.InstanceInfor
 	hcManager   ctypes.HostConfigManager
 	controllers map[types.DeployKey]*replicaCtrl
-	runner      *runner
-	stopC       chan struct{}
+}
+
+// NewSchedular  create a new schedual manager
+func NewSchedular(stage types.Stage, lease time.Duration, info ctypes.InstanceInfor, hcManager ctypes.HostConfigManager) (Manager, error) {
+	if info == nil || hcManager == nil {
+		return nil, errors.New("info and hcmanager cannot be nil")
+	}
+
+	m := manager{
+		stage:     stage,
+		lease:     lease,
+		info:      info,
+		hcManager: hcManager,
+	}
+
+	return &m, nil
 }
 
 func (m *manager) Stop() {
-	close(m.stopC)
 }
 
 func (m *manager) Deploy(ctx context.Context, dc *types.DeployConfig) error {
@@ -122,7 +112,7 @@ func (m *manager) Update(ctx context.Context, dc *types.DeployConfig) error {
 	return c.Deploy(ctx, dc)
 }
 
-func (m *manager) RevokeLegacy(key types.DeployKey) error {
+func (m *manager) RevokeLegacyLease(key types.DeployKey) error {
 	c, err := m.controlerReady(key)
 	if err != nil {
 		return err

@@ -9,6 +9,7 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/pkg/errors"
+	"we.com/dolphin/controllers/java/zk"
 	ctypes "we.com/dolphin/controllers/types"
 	"we.com/dolphin/report"
 	"we.com/dolphin/report/metric"
@@ -17,18 +18,6 @@ import (
 	"we.com/jiabiao/common/probe"
 	pjava "we.com/jiabiao/common/probe/java"
 )
-
-/*
-{"address":"10.10.10.59","type":1,"port":40341,"startTime":"2017-11-13 18:03:19","mainclass":"com.to8to.weixin.server.WeixinServer","pid":27417,"reconnectZK":0,"version":"97"}
-
-{"address":"10.10.10.30","type":1,"port":40364,"time":"2017-06-22 00:21:26"}
-
-{"type":3,"port":0,"time":"2017-07-17 09:24:42"}
-
-{"pid":13943,"version":"7","bind_ip":"0.0.0.0","report_ip":"10.10.10.82","port":40080,"start_time":"2017-09-22 19:07:05","type":1,"method":["views.contractBill.generate","contractBill.query","accountItem.findById","views.contractItem.queryPage","accountItem.findByIds","contractBill.update","views.accountItem.getAccountItem","contractBill.findById","contractBill.create","contractBill.deleteByIds","views.contractBill.queryPage","contractBill.findByIds","views.contractBill.getContractAndItem","contractBill.deleteById","views.contractBill.getDetail","contractItem.query","accountItem.query","views.accountItem.queryPage","contractItem.findByIds","contractItem.findById"]}
-
-{"pid":43024,"version":"7","report_ip":"10.10.10.51","start_time":"2017-10-28 15:35:53","type":0}
-*/
 
 type conditionType string
 
@@ -72,8 +61,6 @@ type esb struct {
 }
 
 type failRatio struct {
-	dat [8]byte
-
 	Count int
 	AVG1  float64
 	AVG5  float64
@@ -86,10 +73,11 @@ type manager struct {
 	lock          sync.RWMutex
 	provider      java.ProbeInterfaceProvider
 	esbs          map[apiVersion][]*esb
-	esbLock       sync.RWMutex
 	insInfor      ctypes.InstanceInfor
+	zkManager     zk.Manager
 	services      map[types.DeployName]*service
 	mchan         chan metric.Metric
+	stopC         chan struct{}
 	inflluxClient *report.InfluxDB
 }
 
@@ -276,6 +264,8 @@ func (m *manager) StartProbe(ctx context.Context, name types.DeployName, ch chan
 
 		case <-ctx.Done():
 			return
+		case <-m.stopC:
+			return
 		}
 	}
 }
@@ -310,35 +300,59 @@ func (s *service) getNumVersion() int {
 	return len(verMap)
 }
 
-func (m *manager) report() {
-	ticker := time.NewTicker(20 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case now := <-ticker.C:
-			if m.inflluxClient == nil {
-				break
-			}
-			metrics := make([]metric.Metric, len(m.services))
-			m.lock.RLock()
-			for n, v := range m.services {
-				labels, fields := m.newLabelsAndFields(n, "all", &v.FailRatio)
-				labels["version"] = string(v.APIVersion)
-				fields["numInstances"] = len(v.instances)
-				fields["numVersions"] = v.getNumVersion()
-				mtr, _ := metric.New(measurement, labels, fields, now)
-				metrics = append(metrics, mtr)
-			}
-			m.lock.RUnlock()
+func (m *manager) check() {
+	// 获取当前运行的java项目
 
-			m.inflluxClient.Write(metrics)
-		case mtr := <-m.mchan:
-			if m.inflluxClient == nil {
-				break
+	// 获取java的deployname列表
+
+	// 对于每个项目（deployname),  查询hostconfig 配置， running instances, zk nodes,
+	// version config, 等信息
+
+	// 获取java 的deployname列表，
+
+}
+
+func (m *manager) report() {
+	go func() {
+		for {
+			select {
+			case <-m.stopC:
+				return
+			case mtr := <-m.mchan:
+				if m.inflluxClient != nil {
+					m.inflluxClient.Write([]metric.Metric{mtr})
+				}
 			}
-			m.inflluxClient.Write([]metric.Metric{mtr})
 		}
-	}
+	}()
+
+	go func() {
+		ticker := time.NewTicker(20 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case now := <-ticker.C:
+				if m.inflluxClient == nil {
+					break
+				}
+				metrics := make([]metric.Metric, len(m.services))
+				m.lock.RLock()
+				for n, v := range m.services {
+					labels, fields := m.newLabelsAndFields(n, "all", &v.FailRatio)
+					labels["version"] = string(v.APIVersion)
+					fields["numInstances"] = len(v.instances)
+					fields["numVersions"] = v.getNumVersion()
+					mtr, _ := metric.New(measurement, labels, fields, now)
+					metrics = append(metrics, mtr)
+				}
+				m.lock.RUnlock()
+
+				m.inflluxClient.Write(metrics)
+			case <-m.stopC:
+				return
+			}
+		}
+	}()
 }
 
 func (fr *failRatio) update(result probe.Result) {

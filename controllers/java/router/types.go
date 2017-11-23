@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	log "github.com/golang/glog"
+	multierror "github.com/hashicorp/go-multierror"
 	"we.com/dolphin/types"
 )
 
@@ -93,4 +94,73 @@ func (rc RouteCfg) String() string {
 type Router interface {
 	GetConfig(name types.DeployName) (*RouteCfg, error)
 	SetConfig(name types.DeployName, cfg *RouteCfg) error
+}
+
+// ZKInfor zk infor of an deployment
+type ZKInfor interface {
+	GetZkInstances(name types.DeployName) ([]*ServiceNode, error)
+}
+
+func parseRouteItem(val string, version string) (*RouteItem, error) {
+	p := val
+	switch version {
+	case APIV2:
+		if commentRe.MatchString(p) || emptyLineRe.MatchString(p) {
+			return nil, nil
+		}
+
+		items := v2Re.FindStringSubmatch(p)
+		if items == nil {
+			log.Errorf("unknown route item: %s", p)
+			err := fmt.Errorf("unknown route item: %s", p)
+			return nil, err
+		}
+		dest := Match{Key: items[1], OP: OP(items[2]), Value: strings.Split(items[3], v2fieldSEP)}
+		ni := RouteItem{Src: Match{}, Dst: dest}
+		return &ni, nil
+
+	case APIV4:
+		if emptyLineRe.MatchString(p) {
+			return nil, nil
+		}
+
+		items := v4Re.FindStringSubmatch(p)
+		if items == nil {
+			log.Errorf("unknown route item: %s", p)
+			return nil, fmt.Errorf("unknown route item: %s", p)
+		}
+		src := Match{Key: items[2], OP: OP(items[3])}
+		if len(items[4]) > 0 {
+			src.Value = strings.Split(items[4], v4fieldSEP)
+		}
+		dest := Match{Key: items[6], OP: OP(items[7]), Value: strings.Split(items[8], v4fieldSEP)}
+		ni := RouteItem{Src: src, Dst: dest}
+		return &ni, nil
+	default:
+		return nil, fmt.Errorf("unknown version %s", version)
+	}
+}
+
+// Parse parse java zk route config,
+func Parse(content string, apiVersion string) (*RouteCfg, error) {
+	parts := strings.Split(content, "\n")
+	var merr *multierror.Error
+	ret := &RouteCfg{APIVersion: apiVersion, RouteItems: []RouteItem{}}
+	for _, p := range parts {
+		ri, err := parseRouteItem(p, apiVersion)
+		if err != nil {
+			merr = multierror.Append(merr, err)
+			continue
+		}
+		if ri == nil {
+			continue
+		}
+		if len(ret.RouteItems) == 0 {
+			ret.RouteItems = []RouteItem{}
+		}
+
+		ret.RouteItems = append(ret.RouteItems, *ri)
+	}
+
+	return ret, merr.ErrorOrNil()
 }

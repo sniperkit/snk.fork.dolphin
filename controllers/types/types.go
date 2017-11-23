@@ -35,10 +35,11 @@ type Scheduler interface {
 // InstanceInfor query instance  infos
 type InstanceInfor interface {
 	Start(ctx context.Context) error
+	ListDeploykeys() []types.DeployKey
 	NewStartedInstance(key types.DeployKey, d time.Duration) []*types.Instance
 	NewStoppedInstance(key types.DeployKey, d time.Duration) []*types.Instance
 	RunningInstance(key types.DeployKey) map[types.InstanceID]*types.Instance
-	RecetStoppedInstance(key types.DeployKey) map[types.InstanceID]*types.Instance
+	RecentStoppedInstance(key types.DeployKey) map[types.InstanceID]*types.Instance
 	GetInstance(key types.DeployKey, insID types.InstanceID) *types.Instance
 }
 
@@ -49,5 +50,12 @@ type HostConfigManager interface {
 	ListHostConfigs(key types.DeployKey) map[types.HostID]types.DeploySpec
 	DeleteHostConfigs(key types.DeployKey, hostIDs ...types.HostID) error
 	SetHostConfig(key types.DeployKey, hostID types.HostID, cfg types.DeploySpec) error
+	Destroy()
+}
+
+// DeployConfigManager deploy config manager
+type DeployConfigManager interface {
+	GetDeployConfig(key types.DeployKey) *types.DeployConfig
+	GetDeployResouce(key types.DeployKey) *types.DeployResource
 	Destroy()
 }

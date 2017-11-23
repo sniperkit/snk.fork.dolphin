@@ -19,28 +19,28 @@ func Test_parseZKPathv2(t *testing.T) {
 			args: args{
 				zkPath: "/service/com.crm",
 			},
-			want:    "route/2/com.crm/route",
+			want:    "java/zk/route/2/com.crm",
 			wantErr: false,
 		}, {
 			name: "/config/com.crm",
 			args: args{
 				zkPath: "/config/com.crm",
 			},
-			want:    "config/2/com.crm",
+			want:    "java/zk/config/2/com.crm",
 			wantErr: false,
 		}, {
 			name: "service instance",
 			args: args{
 				zkPath: "/service/com.crm/server_234",
 			},
-			want:    "instance/2/com.crm/server_234",
+			want:    "java/zk/instances/2/com.crm/server_234",
 			wantErr: false,
 		}, {
 			name: "config item",
 			args: args{
 				zkPath: "/config/com.crm/server/logback.xml",
 			},
-			want:    "config/2/com.crm/server/logback.xml",
+			want:    "java/zk/config/2/com.crm/server/logback.xml",
 			wantErr: false,
 		}, {
 			name: "testErr1",
@@ -67,7 +67,7 @@ func Test_parseZKPathv2(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseZKPathv2(tt.args.zkPath)
+			_, got, err := parseZKPathv2(tt.args.zkPath)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("parseZKPathv2() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -94,7 +94,7 @@ func Test_parseZKPathv4(t *testing.T) {
 			args: args{
 				zkPath: "/biz/t8t-it-sem/app/policy",
 			},
-			want:    "route/4/t8t-it-sem.app",
+			want:    "java/zk/route/4/t8t-it-sem.app",
 			wantErr: false,
 		},
 		{
@@ -102,7 +102,7 @@ func Test_parseZKPathv4(t *testing.T) {
 			args: args{
 				zkPath: "/biz/t8t-it-sem/app/policy/default",
 			},
-			want:    "route/4/t8t-it-sem.app/default",
+			want:    "java/zk/route/4/t8t-it-sem.app/default",
 			wantErr: false,
 		},
 		{
@@ -110,28 +110,28 @@ func Test_parseZKPathv4(t *testing.T) {
 			args: args{
 				zkPath: "/biz/t8t-it-sem/app/policy/default/route",
 			},
-			want:    "route/4/t8t-it-sem.app/default/route",
+			want:    "java/zk/route/4/t8t-it-sem.app/default/route",
 			wantErr: false,
 		}, {
 			name: "config",
 			args: args{
 				zkPath: "/biz/t8t-it-sem/app/config/com.crm",
 			},
-			want:    "config/4/t8t-it-sem.app/com.crm",
+			want:    "java/zk/config/4/t8t-it-sem.app/com.crm",
 			wantErr: false,
 		}, {
 			name: "instance1",
 			args: args{
 				zkPath: "/biz/t8t-it-sem/app/instance/com.crm",
 			},
-			want:    "instance/4/t8t-it-sem.app/com.crm",
+			want:    "java/zk/instances/4/t8t-it-sem.app/com.crm",
 			wantErr: false,
 		}, {
 			name: "instance2",
 			args: args{
 				zkPath: "/biz/t8t-it-sem/app/daemon/com.crm",
 			},
-			want:    "instance/4/t8t-it-sem.app/com.crm",
+			want:    "java/zk/instances/4/t8t-it-sem.app/com.crm",
 			wantErr: false,
 		}, {
 			name: "err",
@@ -144,7 +144,7 @@ func Test_parseZKPathv4(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseZKPathv4(tt.args.zkPath)
+			_, got, err := parseZKPathv4(tt.args.zkPath)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("parseZKPathv4() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -204,17 +204,10 @@ func Test_getZKPath0(t *testing.T) {
 		}, {
 			name: "etcdV2route",
 			args: args{
-				etcdPath: "route/2/t8t-fi-abc.ef/route",
+				etcdPath: "route/2/t8t-fi-abc.ef",
 			},
 			want:    "/service/t8t-fi-abc.ef",
 			wantErr: false,
-		}, {
-			name: "etcdV2route1",
-			args: args{
-				etcdPath: "route/2/t8t-fi-abc.ef",
-			},
-			want:    "",
-			wantErr: true,
 		}, {
 			name: "etcdV2config",
 			args: args{

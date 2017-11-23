@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 
 	"github.com/golang/glog"
+	"github.com/pkg/errors"
 	"we.com/dolphin/controllers/java/project"
 	"we.com/dolphin/registry/etcdkey"
 	"we.com/dolphin/registry/generic"
@@ -15,9 +17,24 @@ import (
 )
 
 type serviceZKPathInfor struct {
-	lock  sync.RWMutex
-	stopC chan struct{}
-	infos map[types.DeployName]*project.Info
+	lock    sync.RWMutex
+	stopC   chan struct{}
+	infos   map[types.DeployName]*project.Info
+	pathMap map[string]types.DeployName
+}
+
+// path should be an abslute zk path
+func cleanPath(path string) (string, error) {
+	parts := strings.Split(path, "/")
+
+	if parts[1] == "biz" {
+		if len(parts) >= 4 {
+			return strings.Join(parts[2:3], "."), nil
+		}
+		return "", errors.Errorf("%v parse error", path)
+	}
+
+	return parts[2], nil
 }
 
 func (s *serviceZKPathInfor) GetRoutePath(name types.DeployName) string {
@@ -40,6 +57,31 @@ func (s *serviceZKPathInfor) GetInstancePath(name types.DeployName) string {
 	return i.ZKInstance
 }
 
+// GetDeployName given a zk path, return its deployname
+// TODO: 可以参考url请求的路由实现， 我们只需要依赖于项目配置，不再预知zk上服务的目录结构
+func (s *serviceZKPathInfor) GetDeployName(path string) types.DeployName {
+	var name types.DeployName
+	path, err := cleanPath(path)
+	if err != nil {
+		return name
+	}
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+
+	name = s.pathMap[path]
+	return name
+}
+
+func (s *serviceZKPathInfor) GetAPIVersion(name types.DeployName) string {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	i := s.infos[name]
+	if i == nil {
+		return ""
+	}
+	return i.APIVersion
+}
+
 func (s *serviceZKPathInfor) load() error {
 	dir := etcdkey.JavaProjectDir()
 	store, err := generic.GetStoreInstance(dir, false)
@@ -59,18 +101,27 @@ func (s *serviceZKPathInfor) load() error {
 			glog.Fatalf("event object must be an instance of *project.Info, got %T", e.Object)
 		}
 
-		m.lock.Lock()
-		defer m.lock.Unlock()
-
 		switch e.Type {
 		case watch.Added, watch.Modified:
 			s.lock.Lock()
 			s.infos[dat.Name] = dat
+			p, err := cleanPath(dat.ZKInstance)
+			if err != nil {
+				s.pathMap[p] = dat.Name
+			} else {
+				glog.Errorf("zk sync: %v parse error: %v", dat.ZKInstance, err)
+			}
 			s.lock.Unlock()
 
 		case watch.Deleted:
 			s.lock.Lock()
 			delete(s.infos, dat.Name)
+			p, err := cleanPath(dat.ZKInstance)
+			if err != nil {
+				delete(s.pathMap, p)
+			} else {
+				glog.Errorf("zk sync: %v parse error: %v", dat.ZKInstance, err)
+			}
 			s.lock.Unlock()
 		}
 
@@ -109,11 +160,16 @@ func (s *serviceZKPathInfor) load() error {
 type PathInfor interface {
 	GetRoutePath(name types.DeployName) string
 	GetInstancePath(name types.DeployName) string
+	GetDeployName(path string) types.DeployName
+	GetAPIVersion(name types.DeployName) string
 }
 
 // NewZKPathInfor return a new PathInfor
 func NewZKPathInfor() (PathInfor, error) {
-	s := &serviceZKPathInfor{}
+	s := &serviceZKPathInfor{
+		infos:   map[types.DeployName]*project.Info{},
+		pathMap: map[string]types.DeployName{},
+	}
 	err := s.load()
 	if err != nil {
 		return nil, err

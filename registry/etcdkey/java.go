@@ -10,8 +10,10 @@ const (
 	javaProbe       = "java/probe/"
 	javaService     = "java/services/"
 	javaVersion     = "java/version/"
+	javaZKBase      = "java/zk/"
 	javaZKRoute     = "java/zk/route/"
 	javaZKInstance  = "java/zk/instances/"
+	javaZKConfig    = "java/zk/config/"
 )
 
 // JavaProbeDir Probe config dir
@@ -30,4 +32,32 @@ func JavaProjectDir() string {
 
 func JavaProjectPath(name types.DeployName) string {
 	return JavaProjectDir() + string(name)
+}
+
+func JavaZKDir(stage types.Stage) string {
+	return StageBaseDir(stage) + javaZKBase
+}
+
+func JavaZKRouteDir(stage types.Stage) string {
+	return StageBaseDir(stage) + javaZKRoute
+}
+
+func JavaZKInstanceDir(stage types.Stage) string {
+	return StageBaseDir(stage) + javaZKInstance
+}
+
+func JavaZKConfigDir(stage types.Stage) string {
+	return StageBaseDir(stage) + javaZKConfig
+}
+
+func JavaZKRelConfigDir() string {
+	return javaZKConfig
+}
+
+func JavaZKRelInstanceDir() string {
+	return javaZKInstance
+}
+
+func JavaZKRelRouteDir() string {
+	return javaZKRoute
 }

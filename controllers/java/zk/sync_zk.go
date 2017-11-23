@@ -2,77 +2,77 @@ package zk
 
 import (
 	"context"
+	"encoding/json"
+	"path/filepath"
 	"regexp"
 	"sync"
 	"time"
 
-	"github.com/coreos/fleet/log"
 	"github.com/golang/glog"
+	multierror "github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
 	"github.com/samuel/go-zookeeper/zk"
 
+	"we.com/dolphin/controllers/java/router"
 	zkcfg "we.com/dolphin/controllers/java/zk/types"
 	"we.com/dolphin/registry/generic"
+	"we.com/dolphin/types"
 )
 
 type manager struct {
-	lock    sync.RWMutex
-	config  *zkcfg.Config
-	clients map[string]*Client
-	cancels map[string]context.CancelFunc
-	wg      sync.WaitGroup
+	stage       types.Stage
+	config      *zkcfg.EnvConfig
+	zkClient    *Client
+	zkPathInfor PathInfor
+	cf          context.CancelFunc
+	lock        sync.RWMutex
+	zkIns       map[types.DeployName][]router.ServiceNode
+	routeCfg    map[types.DeployName]*router.RouteCfg
 }
 
-func (m *manager) StopAll() {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-	for e, cf := range m.cancels {
-		log.Infof("stop zk sync of %v", e)
-		cf()
-		delete(m.cancels, e)
+func (m *manager) Destory() error {
+	if m.cf != nil {
+		m.cf()
 	}
 
-	m.wg.Wait()
-
-	for _, c := range m.clients {
-		c.Close()
+	if m.zkClient != nil {
+		m.zkClient.Close()
 	}
-	m.cancels = nil
-	m.clients = nil
-}
-
-func (m *manager) stop(env string) error {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-
-	if cf, ok := m.cancels[env]; ok {
-		cf()
-		delete(m.cancels, env)
-	}
-
-	if c, ok := m.clients[env]; ok {
-		c.Close()
-		delete(m.clients, env)
-	}
+	m.cf = nil
+	m.zkClient = nil
 
 	return nil
 }
 
-func newManager(cfg *zkcfg.Config) (*manager, error) {
+func newManager(cfg *zkcfg.EnvConfig, pi PathInfor) (Manager, error) {
 	if cfg == nil {
 		return nil, errors.Errorf("config cannot be nil")
 	}
 
 	m := &manager{
-		config:  cfg,
-		clients: map[string]*Client{},
-		cancels: map[string]context.CancelFunc{},
+		config:      cfg,
+		stage:       cfg.ENV,
+		zkIns:       map[types.DeployName][]router.ServiceNode{},
+		routeCfg:    map[types.DeployName]*router.RouteCfg{},
+		zkPathInfor: pi,
+	}
+
+	cli, err := NewClient(cfg.ZKServers)
+	if err != nil {
+		return nil, err
+	}
+
+	m.zkClient = cli
+
+	if err := m.start(); err != nil {
+		m.Destory()
+		return nil, err
 	}
 
 	return m, nil
 }
 
-func (m *manager) startAll() error {
+func (m *manager) start() error {
 	if m == nil {
 		return errors.Errorf("manaager is nil")
 	}
@@ -81,85 +81,69 @@ func (m *manager) startAll() error {
 		return errors.Errorf("config is nil")
 	}
 
-	for k := range m.config.Envs {
-		if err := m.ReloadData(k); err != nil {
-			return err
-		}
+	if err := m.ReloadData(); err != nil {
+		return err
+	}
 
-		m.lock.RLock()
-		if _, ok := m.cancels[k]; ok {
-			m.lock.RUnlock()
-			return errors.Errorf("zk: watch for %v already starting, please stop first", k)
-		}
-		ctx, cf := context.WithCancel(context.Background())
-		m.cancels[k] = cf
-		m.lock.RUnlock()
+	ctx, cf := context.WithCancel(context.Background())
+	m.cf = cf
 
-		go func(env string) {
-			// if more than 5 times err happend with 5 mins
-			// log.Fatal
-			startTime := time.Now()
-			errCount := 0
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					if err := m.WatchEnv(ctx, env); err != nil {
-						glog.Error(err)
-						errCount++
-						now := time.Now()
-						if startTime.Add(5 * time.Minute).After(now) {
-							if errCount > 5 {
-								glog.Fatalf("zk: %v sync failed %v times within %v seconds", env, errCount, (now.Unix() - startTime.Unix()))
-							}
-						} else {
-							startTime = now
-							errCount = 1
+	go func() {
+		// if more than 5 times err happend with 5 mins
+		// log.Fatal
+		startTime := time.Now()
+		errCount := 0
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				if err := m.Watch(ctx); err != nil {
+					glog.Error(err)
+					errCount++
+					now := time.Now()
+					if startTime.Add(5 * time.Minute).After(now) {
+						if errCount > 5 {
+							glog.Fatalf("zk: %v sync failed %v times within %v seconds", m.stage.String(), errCount, (now.Unix() - startTime.Unix()))
 						}
-					}
-
-					if err := m.stop(env); err != nil {
-						glog.Errorf("zk: stop env %v: %v", env, err)
+					} else {
+						startTime = now
+						errCount = 1
 					}
 				}
+
+				m.Destory()
 			}
-		}(k)
-	}
+		}
+	}()
 
 	return nil
 }
 
-func (m *manager) ReloadData(env string) error {
-	cli, err := m.getzkClient(env)
-	if err != nil {
-		return errors.Errorf("zk: %v get zkclient, %v", env, err)
-	}
-
-	m.lock.RLock()
-	cfg, ok := m.config.Envs[env]
-	if !ok {
-		m.lock.RUnlock()
-		return errors.Errorf("zk: unknown env: %v", env)
-	}
-	m.lock.RUnlock()
-
+func (m *manager) ReloadData() error {
+	env := m.stage
+	cfg := m.config
 	store, err := generic.GetStoreInstance("", false)
 	if err != nil {
 		return err
 	}
 
+	var merr *multierror.Error
 	for _, v := range cfg.ZKPaths {
-		dat, err := cli.GetValues([]string{v.Base}, v.Regexp, false)
+		dat, err := m.zkClient.GetValues([]string{v.Base}, v.Regexp, false)
 		if err != nil {
 			return err
 		}
 
 		for k, d := range dat {
-			etcdPath, err := getEtcdPath(env, k)
+			typ, etcdPath, err := getEtcdPath(env, k)
 			if err != nil {
 				glog.Warningf("zk: %v zkpath %v ingored for %v", env, k, err)
 				continue
+			}
+
+			if err := m.parseZKData(typ, k, d); err != nil {
+				merr = multierror.Append(merr, err)
 			}
 
 			err = store.Update(context.Background(), etcdPath, d, nil, 0)
@@ -172,15 +156,65 @@ func (m *manager) ReloadData(env string) error {
 	return nil
 }
 
-// WatchEnv  config configed zkpath of env for changes
+func (m *manager) GetRouteConfig(name types.DeployName) (*router.RouteCfg, error) {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	rc := m.routeCfg[name]
+	return rc, nil
+}
+
+func (m *manager) SetRouteConfig(name types.DeployName, cfg *router.RouteCfg) error {
+	path := m.zkPathInfor.GetRoutePath(name)
+	if path == "" {
+		return errors.Errorf("dont known zk path form %v", name)
+	}
+
+	var val string
+	if cfg != nil {
+		val = cfg.String()
+	}
+
+	if err := m.zkClient.SetNodeValue(path, val); err != nil {
+		return err
+	}
+
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	m.routeCfg[name] = cfg
+
+	return nil
+}
+
+func (m *manager) GetInstanceList(name types.DeployName) ([]*router.ServiceNode, error) {
+	ret := []*router.ServiceNode{}
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	ins, ok := m.zkIns[name]
+	if !ok {
+		return nil, nil
+	}
+	for _, v := range ins {
+		ret = append(ret, &v)
+	}
+
+	return ret, nil
+}
+
+// Watch  config configed zkpath of env for changes
 // note: this will not load data from zk, if no events happened
-func (m *manager) WatchEnv(ctx context.Context, env string) error {
-	handler := m.handlerFunc(ctx, env)
+func (m *manager) Watch(ctx context.Context) error {
+	handler := m.handlerFunc(ctx, m.stage)
 
-	ech := make(chan zk.Event, 2)
-	defer close(ech)
+	ech := make(chan zk.Event, 10)
+	defer func() {
+		close(ech)
+		for range ech {
+		}
+	}()
 
-	if err := m.watchEnv(ctx, env, ech); err != nil {
+	if err := m.watch(ctx, ech); err != nil {
 		return err
 	}
 
@@ -196,65 +230,60 @@ func (m *manager) WatchEnv(ctx context.Context, env string) error {
 	}
 }
 
-func (m *manager) getzkClient(env string) (*Client, error) {
-	m.lock.Lock()
-	defer m.lock.Unlock()
-	cli, ok := m.clients[env]
-	if ok {
-		return cli, nil
-	}
-
-	if m.config == nil {
-		return nil, errors.Errorf("zk: manager has no config")
-	}
-
-	cfg, ok := m.config.Envs[env]
-	if !ok {
-		return nil, errors.Errorf("unknown env: %v", env)
-	}
-
-	cli, err := NewClient(cfg.ZKServers)
-	if err != nil {
-		return nil, err
-	}
-
-	m.clients[env] = cli
-	return cli, err
-}
-
-func (m *manager) watchEnv(ctx context.Context, env string, ech chan<- zk.Event) error {
-
-	cli, err := m.getzkClient(env)
-	if err != nil {
-		return err
-	}
-
-	m.lock.RLock()
-	cfg, ok := m.config.Envs[env]
-	m.lock.RUnlock()
-	if !ok {
-		return errors.Errorf("zk: manager there not config for %v", env)
-	}
-
+func (m *manager) watch(ctx context.Context, ech chan<- zk.Event) error {
 	var re *regexp.Regexp
-	for _, v := range cfg.ZKPaths {
+	for _, v := range m.config.ZKPaths {
 		if v.Regexp != nil {
 			re = v.Regexp
 		}
 
-		cli.WatchPrefix(ctx, v.Base, re, ech)
+		m.zkClient.WatchPrefix(ctx, v.Base, re, ech)
 	}
 
 	return nil
 }
 
-func (m *manager) handlerFunc(ctx context.Context, env string) func(zk.Event) error {
-	return func(event zk.Event) error {
-		cli, ok := m.clients[env]
-		if !ok {
-			return errors.Errorf("zk: %v handlerFunc: cannot get zk client", env)
-		}
+func (m *manager) parseZKData(typ zkTyp, path string, dat []byte) error {
+	name := m.zkPathInfor.GetDeployName(path)
+	if name == "" {
+		return errors.Errorf("zk sync: cannot recognize zk path: %v", path)
+	}
 
+	nodeName := filepath.Base(path)
+
+	s := router.ServiceNode{}
+	var rc *router.RouteCfg
+	var err error
+	if typ == zkInstance {
+		if err := json.Unmarshal(dat, &s); err != nil {
+			return err
+		}
+		s.NodeName = nodeName
+	} else if typ == zkRoute {
+		ver := m.zkPathInfor.GetAPIVersion(name)
+		rc, err = router.Parse(string(dat), ver)
+		if err != nil {
+			glog.Errorf("zk: parse %v router config, err: %v", name, err)
+			return err
+		}
+	}
+
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	if typ == zkInstance {
+		ss := m.zkIns[name]
+		ss = append(ss, s)
+		m.zkIns[name] = ss
+	} else if typ == zkRoute {
+		m.routeCfg[name] = rc
+	}
+
+	return nil
+}
+
+func (m *manager) handlerFunc(ctx context.Context, env types.Stage) func(zk.Event) error {
+	return func(event zk.Event) error {
+		cli := m.zkClient
 		glog.V(10).Infof("zk: %v receiver event: %v", env, event)
 		if event.Err != nil {
 			glog.Errorf("zk: %v: %v", env, event.Err)
@@ -296,8 +325,25 @@ func (m *manager) handlerFunc(ctx context.Context, env string) func(zk.Event) er
 				}
 			}
 
+			name := m.zkPathInfor.GetDeployName(path)
+
+			new := make([]router.ServiceNode, 0, len(l))
+			m.lock.Lock()
+			ss := m.zkIns[name]
+			m.zkIns[name] = new
+			m.lock.Unlock()
+
 			// new added nodes
 			for _, k := range l {
+				sn := filepath.Base(k)
+				found := false
+				for _, v := range ss {
+					if v.NodeName == sn {
+						found = true
+						new = append(new, v)
+					}
+				}
+
 				if _, ok := etcdKeysMap[k]; !ok {
 					s := path + "/" + k
 					data, _, err := cli.client.Get(s)
@@ -306,7 +352,11 @@ func (m *manager) handlerFunc(ctx context.Context, env string) func(zk.Event) er
 						continue
 					}
 
-					etcdPath, err := getEtcdPath(env, s)
+					if !found {
+						m.parseZKData(zkInstance, s, data)
+					}
+
+					_, etcdPath, err := getEtcdPath(env, s)
 					if err != nil {
 						glog.Infof("zk: %v zkpath to etcdpath: %v, skip", env, s)
 						continue
@@ -324,10 +374,14 @@ func (m *manager) handlerFunc(ctx context.Context, env string) func(zk.Event) er
 				break
 			}
 
-			etcdPath, err := getEtcdPath(env, path)
+			typ, etcdPath, err := getEtcdPath(env, path)
 			if err != nil {
 				glog.Infof("zk: %v zkpath to etcdpath: %v, skip", env, path)
 				break
+			}
+
+			if typ == zkRoute {
+				m.parseZKData(typ, path, data)
 			}
 
 			store, err := generic.GetStoreInstance("", false)
@@ -339,11 +393,28 @@ func (m *manager) handlerFunc(ctx context.Context, env string) func(zk.Event) er
 				glog.Errorf("zk: %v store data to etcd %v: %v", env, etcdPath, err)
 			}
 		case zk.EventNodeDeleted:
-			etcdPath, err := getEtcdPath(env, path)
+			typ, etcdPath, err := getEtcdPath(env, path)
 			if err != nil {
 				glog.Infof("zk: %v zkpath to etcdpath: %v, skip", env, path)
 				break
 			}
+
+			name := m.zkPathInfor.GetDeployName(path)
+
+			m.lock.Lock()
+			if typ == zkRoute {
+				delete(m.routeCfg, name)
+			} else if typ == zkInstance {
+				nodeName := filepath.Base(path)
+				ss := m.zkIns[name]
+				for idx, v := range ss {
+					if v.NodeName == nodeName {
+						ss[idx] = ss[len(ss)-1]
+						m.zkIns[name] = ss[:len(ss)-1]
+					}
+				}
+			}
+			m.lock.Unlock()
 
 			store, err := generic.GetStoreInstance("", false)
 			if err != nil {
@@ -360,4 +431,24 @@ func (m *manager) handlerFunc(ctx context.Context, env string) func(zk.Event) er
 
 		return nil
 	}
+}
+
+func (m *manager) ListDeployment() []types.DeployName {
+	ret := make([]types.DeployName, 0, len(m.zkIns))
+
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+	for k := range m.zkIns {
+		ret = append(ret, k)
+	}
+	return ret
+}
+
+// Manager get or set java instance infos
+type Manager interface {
+	ListDeployment() []types.DeployName
+	GetRouteConfig(name types.DeployName) (*router.RouteCfg, error)
+	SetRouteConfig(name types.DeployName, rc *router.RouteCfg) error
+	GetInstanceList(name types.DeployName) ([]*router.ServiceNode, error)
+	Destory() error
 }
