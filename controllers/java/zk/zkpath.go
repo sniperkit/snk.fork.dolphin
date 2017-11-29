@@ -339,7 +339,8 @@ func (sp *simplePathInfo) load() error {
 	return nil
 }
 
-func newSimplePathInfo() (PathInfor, error) {
+// NewSimplePathInfo  create a new PathInfor
+func NewSimplePathInfo() (PathInfor, error) {
 	ret := simplePathInfo{
 		serviceMap: map[string]string{},
 		projectMap: map[string]string{},

@@ -46,7 +46,8 @@ func (m *manager) Destory() error {
 	return nil
 }
 
-func newManager(cfg *zkcfg.EnvConfig, pi PathInfor) (Manager, error) {
+// NewManager create a new zk sync manager
+func NewManager(cfg *zkcfg.EnvConfig, pi PathInfor) (Manager, error) {
 	if cfg == nil {
 		return nil, errors.Errorf("config cannot be nil")
 	}
@@ -82,25 +83,22 @@ func (m *manager) start() error {
 	if m.config == nil {
 		return errors.Errorf("config is nil")
 	}
-	
+
 	go func() {
 		timer := time.NewTicker(4 * time.Hour)
 		defer timer.Stop()
 		for {
 			select {
-			case <-  timer.C:
+			case <-timer.C:
 				if err := m.ReloadData(); err != nil {
 					glog.Errorf("zk: sync data from zk to etcd: %v", err)
 				}
 			}
 		}
-	}
-
+	}()
 
 	ctx, cf := context.WithCancel(context.Background())
 	m.cf = cf
-
-	
 
 	go func() {
 		// if more than 5 times err happend with 5 mins
@@ -150,13 +148,7 @@ func (m *manager) ReloadData() error {
 			return err
 		}
 		for k, d := range dat {
-			if strings.Contains(k, "esb") {
-				glog.Infof("zkpath: %v", k)
-			}
 			typ, etcdPath, err := m.zkPathInfor.GetEtcdPath(env, k)
-			if typ == zkRoute && strings.HasPrefix(k, "/serv") {
-				glog.Infof("zk: route: %v, %v, %v", k, etcdPath, err)
-			}
 			if err != nil {
 				glog.Warningf("zk: %v zkpath %v ingored for %v", env, k, err)
 				continue
@@ -284,6 +276,12 @@ func (m *manager) parseZKData(typ zkTyp, path string, dat []byte) error {
 			return err
 		}
 		s.NodeName = nodeName
+		if strings.HasPrefix(path, "/biz/") {
+			s.APIVersion = api4
+		} else {
+			s.APIVersion = api2
+		}
+
 	} else if typ == zkRoute {
 		ver := m.zkPathInfor.GetAPIVersion(name)
 		rc, err = router.Parse(string(dat), ver)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net/http"
@@ -12,12 +13,14 @@ import (
 
 	"github.com/golang/glog"
 	"github.com/gorilla/mux"
-	"github.com/hashicorp/go-multierror"
+	multierror "github.com/hashicorp/go-multierror"
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"we.com/dolphin/api/deploy"
 	"we.com/dolphin/api/host"
 	"we.com/dolphin/api/java"
 	"we.com/dolphin/controllers/java/zk"
+	zktypes "we.com/dolphin/controllers/java/zk/types"
 	"we.com/dolphin/controllers/scheduler"
 	ctypes "we.com/dolphin/controllers/types"
 	"we.com/dolphin/controllers/types/impl"
@@ -34,52 +37,135 @@ var (
 )
 
 var (
-	insInfos   map[types.Stage]ctypes.InstanceInfor
-	hcManagers map[types.Stage]ctypes.HostConfigManager
-	schedulers map[types.Stage]scheduler.Manager
+	envInfos = map[types.Stage]*stageInfo{}
 )
 
-func reload(stopC chan struct{}) error {
-	f, err := os.Open(*cfgFile)
-	defer f.Close()
-	if err != nil {
-		return err
-	}
-	d := yaml.NewYAMLOrJSONDecoder(f, 4)
-	cfg := config{}
-	if err := d.Decode(&cfg); err != nil {
-		return err
-	}
+type stageInfo struct {
+	insInfo   ctypes.InstanceInfor
+	hcManager ctypes.HostConfigManager
+	dcManager ctypes.DeployConfigManager
+	scheduler scheduler.Manager
+	zkSyner   zk.Manager
+	ctx       context.Context
+	df        context.CancelFunc
+}
 
-	pi, err := zk.NewZKPathInfor()
-	if err != nil {
-		return err
-	}
-
-	if err := zk.Start(&cfg.ZKs); err != nil {
-		return err
+func (si *stageInfo) destroy() error {
+	if si.df != nil {
+		si.df()
+		si.df = nil
 	}
 
-	// TODO
-	var merr *multierror.Error
-	infos := map[types.Stage]ctypes.InstanceInfor{}
-	for e, zk := range cfg.ZKs.Envs {
-		infor := impl.NewInfor(e)
-		insInfos[e] = infor
-		m, err := impl.NewHCManager(e)
-		if err != nil {
-		}
-		hcManagers[e] = m
+	if si.zkSyner != nil {
+		si.zkSyner.Destory()
+	}
 
-		sched, err := scheduler.NewSchedular(e, time.Hour, infor, m)
-		if err != nil {
-			merr = multierror.Append(merr, err)
-			continue
-		}
-		schedulers[e] = sched
+	// TODO: check
+	if si.scheduler != nil {
+
+	}
+
+	if si.hcManager != nil {
+		si.hcManager.Destroy()
 	}
 
 	return nil
+}
+
+func newStageInfo(env types.Stage, zkcfg *zktypes.EnvConfig, pi zk.PathInfor) (*stageInfo, error) {
+	lease := time.Hour
+	m, err := zk.NewManager(zkcfg, pi)
+	if err != nil {
+		err = errors.Wrap(err, "create zk sync manager")
+		return nil, err
+	}
+
+	ret := &stageInfo{
+		zkSyner: m,
+	}
+
+	defer func() {
+		if err != nil {
+			ret.destroy()
+		}
+	}()
+
+	insInfo := impl.NewInfor(env)
+	ctx := context.Background()
+	ctx, df := context.WithCancel(ctx)
+	ret.ctx = ctx
+	ret.df = df
+	if err = insInfo.Start(ctx); err != nil {
+		err = errors.Wrap(err, "get instance info")
+		return nil, err
+	}
+
+	ret.insInfo = insInfo
+
+	hcManager, err := impl.NewHCManager(env)
+	if err != nil {
+		err = errors.Wrap(err, "create host config manager")
+		return nil, err
+	}
+	ret.hcManager = hcManager
+	dcManager, err := impl.NewDeployConfigManager(env)
+	if err != nil {
+		err = errors.Wrap(err, "create deploy config manager")
+		return nil, err
+	}
+
+	ret.dcManager = dcManager
+	sm, err := scheduler.NewSchedular(env, lease, insInfo, hcManager)
+	if err != nil {
+		err = errors.Wrap(err, "create scheduler manager")
+		return nil, err
+	}
+
+	envInfos[env] = ret
+	return ret, nil
+}
+
+func destroy() error {
+	for _, m := range envInfos {
+		m.zkSyner.Destory()
+	}
+
+	return nil
+}
+
+func reload() error {
+	// 解析配置文件
+	f, err := os.Open(*cfgFile)
+	if err != nil {
+		return err
+	}
+
+	cfg := config{}
+	decode := yaml.NewYAMLOrJSONDecoder(f, 4)
+	if err := decode.Decode(&cfg); err != nil {
+		return err
+	}
+
+	// etcd
+	generic.SetEtcdConfig(cfg.Etcd)
+
+	// influxdb
+
+	// zk
+	pi, err := zk.NewSimplePathInfo()
+	if err != nil {
+		return err
+	}
+
+	var merr *multierror.Error
+
+	for env, zkCfg := range cfg.ZKs.Envs {
+		if _, err := newStageInfo(env, &zkCfg, pi); err != nil {
+			merr = multierror.Append(merr, err)
+		}
+	}
+
+	return merr.ErrorOrNil()
 }
 
 func main() {

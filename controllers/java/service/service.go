@@ -3,18 +3,22 @@ package service
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/golang/glog"
+	multierror "github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
+	"we.com/dolphin/controllers/java/router"
 	"we.com/dolphin/controllers/java/zk"
 	ctypes "we.com/dolphin/controllers/types"
 	"we.com/dolphin/report"
 	"we.com/dolphin/report/metric"
 	"we.com/dolphin/types"
 	"we.com/dolphin/types/ins/java"
+	"we.com/jiabiao/common/alert"
 	"we.com/jiabiao/common/probe"
 	pjava "we.com/jiabiao/common/probe/java"
 )
@@ -41,11 +45,11 @@ type service struct {
 	Types      types.ServiceType `json:"types,omitempty"`
 	APIVersion apiVersion        `json:"apiVersion,omitempty"`
 
-	Route         string `json:"route,omitempty"`
-	RouteVersion  string `json:"routeVersion,omitempty"`
-	LatestVersion string `json:"latestVersion,omitempty"`
-	LastVersion   string `json:"lastVersion,omitempty"`
-	ExpectVersion string `json:"expectVersion,omitempty"`
+	Route         *router.RouteCfg `json:"route,omitempty"`
+	RouteVersion  string           `json:"routeVersion,omitempty"`
+	LatestVersion string           `json:"latestVersion,omitempty"`
+	LastVersion   string           `json:"lastVersion,omitempty"`
+	ExpectVersion string           `json:"expectVersion,omitempty"`
 	FailRatio     failRatio
 
 	ExpectInstance int                         `json:"expectInstance,omitempty"`
@@ -67,6 +71,10 @@ type failRatio struct {
 	AVG15 float64
 }
 
+// Manager java service  checker
+type Manager interface {
+}
+
 type manager struct {
 	interval      time.Duration
 	stage         types.Stage
@@ -79,6 +87,248 @@ type manager struct {
 	mchan         chan metric.Metric
 	stopC         chan struct{}
 	inflluxClient *report.InfluxDB
+}
+
+/*
+	需要检测的异常：
+		1. 路由版本与实例版本不一致 <不一定是问题>
+		2. zk上节点与实际在跑的实例不一致
+		3. 服务拨测异常
+
+	需要上报的信息：
+		1. 路由版本
+		2. zk上不同版本的个数
+		3. zk上实例的个数
+		4. 实际在跑的实例个数
+		5. zk实例的版本，怎么处理多个版本的情况
+*/
+
+// NewManager create a new manager
+func NewManager(stage types.Stage, diPV java.ProbeInterfaceProvider, info ctypes.InstanceInfor,
+	zk zk.Manager, reporter *report.InfluxDB) (Manager, error) {
+	if diPV == nil {
+		return nil, errors.Errorf("controler: java service checker, javaprobeinterfaceProvider cannot be nil")
+	}
+
+	if info == nil {
+		return nil, errors.New("controler: java service checker, instanceInfor cannot be nil")
+	}
+
+	if zk == nil {
+		return nil, errors.New("controler: java service checker, zk.Manager cannot be nil")
+	}
+
+	if reporter == nil {
+		return nil, errors.New("controler: java service checker, influxdb client cannot be nil")
+	}
+
+	ret := manager{
+		interval:      5 * time.Second,
+		stage:         stage,
+		provider:      diPV,
+		esbs:          map[apiVersion][]*esb{},
+		insInfor:      info,
+		zkManager:     zk,
+		services:      map[types.DeployName]*service{},
+		mchan:         make(chan metric.Metric, 200),
+		stopC:         make(chan struct{}),
+		inflluxClient: reporter,
+	}
+
+	return &ret, nil
+}
+
+func getRouteVersion(cfg *router.RouteCfg) string {
+	if cfg == nil {
+		return ""
+	}
+
+	for _, v := range cfg.RouteItems {
+		if v.Dst.Key == "version" {
+			if len(v.Dst.Value) >= 1 {
+				return v.Dst.Value[0]
+			}
+			return ""
+		}
+	}
+
+	return ""
+}
+
+func (m *manager) checkHostRunningAndZKinstances() error {
+	// 获取zk上所有的java服务
+	names := m.zkManager.ListDeployment()
+	var merr *multierror.Error
+
+	var alerts []alert.Message
+
+	for _, v := range names {
+		ss, err := m.zkManager.GetInstanceList(v)
+		if err != nil {
+			merr = multierror.Append(merr, err)
+			continue
+		}
+
+		insMap := m.insInfor.RunningInstance(types.DeployKey(fmt.Sprintf("java/%v", v)))
+
+		if len(ss) != len(insMap) {
+			zkhosts := []string{}
+			actualHosts := []string{}
+			for _, i := range ss {
+				zkhosts = append(zkhosts, i.Host)
+				sort.StringSlice(zkhosts).Sort()
+			}
+			for _, i := range insMap {
+				actualHosts = append(actualHosts, i.IP)
+				sort.StringSlice(actualHosts).Sort()
+			}
+
+			parts := strings.Split(string(v), ":")
+			alerts = append(alerts, alert.Message{
+				Labels: map[string]string{
+					"proj": parts[0],
+					"env":  m.stage.String(),
+					"from": "dolphin",
+					"why":  "zk实例不一致",
+				},
+				Annotations: map[string]string{
+					"time":       time.Now().Local().Format(time.Kitchen),
+					"msg":        fmt.Sprintf("%v zk上节点个数：%v, 实际的实例数: %v", v, len(ss), len(insMap)),
+					"zkhosts":    strings.Join(zkhosts, ", "),
+					"actualHost": strings.Join(actualHosts, ", "),
+				},
+			})
+		}
+
+	}
+
+	err := merr.ErrorOrNil()
+	if err != nil {
+		alerts = append(alerts, alert.Message{
+			Labels: map[string]string{
+				"env":  m.stage.String(),
+				"from": "dolphin",
+				"why":  "check zk实例异常",
+			},
+			Annotations: map[string]string{
+				"time": time.Now().Local().Format(time.Kitchen),
+				"msg":  err.Error(),
+			},
+		})
+	}
+
+	if len(alerts) > 0 {
+		go alert.SendAlerts(alerts...)
+	}
+
+	return err
+}
+
+func (m *manager) checkZKInstanceNum() error {
+
+	return nil
+}
+
+func (m *manager) checkZKVersion() error {
+	names := m.zkManager.ListDeployment()
+	var merr *multierror.Error
+
+	var alerts []alert.Message
+
+	for _, v := range names {
+		ss, err := m.zkManager.GetInstanceList(v)
+		if err != nil {
+			merr = multierror.Append(merr, err)
+			continue
+		}
+
+		if len(ss) == 0 {
+			continue
+		}
+
+		rcfg, err := m.zkManager.GetRouteConfig(v)
+		if err != nil {
+			merr = multierror.Append(merr, errors.WithMessage(err, fmt.Sprintf("get route config: %v ", v)))
+			continue
+		}
+
+		ver := getRouteVersion(rcfg)
+		if ver == "" {
+			continue
+		}
+
+		msg := ""
+		for _, v := range ss {
+			if v.Version != ver {
+				msg = msg + fmt.Sprintf("%v:%v\n", v.NodeName, v.Version)
+			}
+		}
+		if len(msg) > 0 {
+			parts := strings.Split(string(v), ":")
+			alerts = append(alerts, alert.Message{
+				Labels: map[string]string{
+					"proj": parts[0],
+					"env":  m.stage.String(),
+					"from": "dolphin",
+					"why":  "版本不一致",
+				},
+				Annotations: map[string]string{
+					"time": time.Now().Local().Format(time.Kitchen),
+					"msg":  fmt.Sprintf("当前路由版本为：%v, 不一致的实例\n%v", ver, msg),
+				},
+			})
+		}
+
+	}
+	return nil
+}
+
+func (m *manager) load() error {
+	// 获取zk上所有的java服务
+	names := m.zkManager.ListDeployment()
+	var merr *multierror.Error
+	for _, v := range names {
+		ss, err := m.zkManager.GetInstanceList(v)
+		if err != nil {
+			merr = multierror.Append(merr, err)
+			continue
+		}
+
+		if len(ss) == 0 {
+			continue
+		}
+		s := ss[0]
+
+		typ := types.ServiceDaemon
+		if s.Type == 1 || s.Port > 0 {
+			typ = types.ServiceService
+		}
+
+		rcfg, _ := m.zkManager.GetRouteConfig(v)
+		insMap := m.insInfor.RunningInstance(types.DeployKey(fmt.Sprintf("java/%v", v)))
+
+		ins := make([]*types.Instance, 0, len(insMap))
+		for _, v := range insMap {
+			ins = append(ins, v)
+		}
+
+		serv := service{
+			Stage:          m.stage,
+			Name:           v,
+			Types:          typ,
+			APIVersion:     apiVersion(s.APIVersion),
+			Route:          rcfg,
+			ExpectInstance: 0,
+			Conditions:     map[conditionType]condition{},
+			esbFailRatio:   map[string]*failRatio{},
+			instances:      ins,
+		}
+
+		m.services[v] = &serv
+
+	}
+
+	return nil
 }
 
 func (m *manager) lg(name types.DeployName, esb *esb) (probe.LoadGenerator, error) {
@@ -301,9 +551,24 @@ func (s *service) getNumVersion() int {
 }
 
 func (m *manager) check() {
-	// 获取当前运行的java项目
-
+	javaMap := map[types.DeployKey]struct{}{}
 	// 获取java的deployname列表
+	keys := m.insInfor.ListDeploykeys()
+	for _, v := range keys {
+		if !strings.HasPrefix(string(v), "java/") {
+			continue
+		}
+		javaMap[v] = struct{}{}
+	}
+
+	for k := range javaMap {
+		name := types.DeployName(strings.TrimPrefix(string(k), "java/"))
+
+		m.insInfor.RunningInstance(k)
+
+		m.zkManager.GetRouteConfig(name)
+
+	}
 
 	// 对于每个项目（deployname),  查询hostconfig 配置， running instances, zk nodes,
 	// version config, 等信息

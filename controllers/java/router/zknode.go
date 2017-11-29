@@ -18,21 +18,22 @@ import (
 */
 
 type ServiceNode struct {
-	NodeName    string    `json:"nodeName"`
-	Host        string    `json:"address"`
-	Type        int       `json:"type"`
-	Port        int       `json:"port"`
-	StartTime   time.Time `json:"startTime"`
-	MainClass   string    `json:"mainclass"`
-	Pid         int       `json:"pid"`
-	ReconnectZK int       `json:"reconnectZK"`
-	Version     string    `json:"version"`
-	// Methods     []string  `json:"method"`
+	APIVersion  string    `json:"apiVersion,omitempty"`
+	NodeName    string    `json:"nodeName,omitempty"`
+	Host        string    `json:"address,omitempty"`
+	Type        int       `json:"type,omitempty"`
+	Port        int       `json:"port,omitempty"`
+	StartTime   time.Time `json:"startTime,omitempty"`
+	MainClass   string    `json:"mainclass,omitempty"`
+	Pid         int       `json:"pid,omitempty"`
+	ReconnectZK int       `json:"reconnectZK,omitempty"`
+	Version     string    `json:"version,omitempty"`
 }
 
 // UnmarshalJSON implements json interface
 func (sn *ServiceNode) UnmarshalJSON(b []byte) error {
 	var o struct {
+		APIVersion  string `json:"apiVersion,omitempty"`
 		Host        string `json:"address"`
 		IP          string `json:"report_ip"`
 		Type        int    `json:"type"`
@@ -44,9 +45,6 @@ func (sn *ServiceNode) UnmarshalJSON(b []byte) error {
 		Pid         int    `json:"pid"`
 		ReconnectZK int    `json:"reconnectZK"`
 		Version     string `json:"version"`
-		//		Methods     []string `json:"method"`
-		// Catches all undefined fields and must be empty after parsing.
-		XXX map[string]interface{} `json:",inline"`
 	}
 
 	err := json.Unmarshal(b, &o)
@@ -82,7 +80,6 @@ func (sn *ServiceNode) UnmarshalJSON(b []byte) error {
 	sn.Pid = o.Pid
 	sn.Version = o.Version
 	sn.ReconnectZK = o.ReconnectZK
-	//	sn.Methods = o.Methods
 
 	return nil
 }
