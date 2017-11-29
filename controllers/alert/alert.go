@@ -12,11 +12,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-// SendMsg send an alert msg
-func SendMsg(msg string) error {
-	return nil
-}
-
 var (
 	alertEndpoint = "http://alarm.we.com/api/v1/alerts"
 )

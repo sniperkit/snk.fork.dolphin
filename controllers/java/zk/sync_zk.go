@@ -3,8 +3,10 @@ package zk
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -80,13 +82,25 @@ func (m *manager) start() error {
 	if m.config == nil {
 		return errors.Errorf("config is nil")
 	}
-
-	if err := m.ReloadData(); err != nil {
-		return err
+	
+	go func() {
+		timer := time.NewTicker(4 * time.Hour)
+		defer timer.Stop()
+		for {
+			select {
+			case <-  timer.C:
+				if err := m.ReloadData(); err != nil {
+					glog.Errorf("zk: sync data from zk to etcd: %v", err)
+				}
+			}
+		}
 	}
+
 
 	ctx, cf := context.WithCancel(context.Background())
 	m.cf = cf
+
+	
 
 	go func() {
 		// if more than 5 times err happend with 5 mins
@@ -132,11 +146,17 @@ func (m *manager) ReloadData() error {
 	for _, v := range cfg.ZKPaths {
 		dat, err := m.zkClient.GetValues([]string{v.Base}, v.Regexp, false)
 		if err != nil {
+			glog.Errorf("zk: get zk values: %v", err)
 			return err
 		}
-
 		for k, d := range dat {
-			typ, etcdPath, err := getEtcdPath(env, k)
+			if strings.Contains(k, "esb") {
+				glog.Infof("zkpath: %v", k)
+			}
+			typ, etcdPath, err := m.zkPathInfor.GetEtcdPath(env, k)
+			if typ == zkRoute && strings.HasPrefix(k, "/serv") {
+				glog.Infof("zk: route: %v, %v, %v", k, etcdPath, err)
+			}
 			if err != nil {
 				glog.Warningf("zk: %v zkpath %v ingored for %v", env, k, err)
 				continue
@@ -165,7 +185,10 @@ func (m *manager) GetRouteConfig(name types.DeployName) (*router.RouteCfg, error
 }
 
 func (m *manager) SetRouteConfig(name types.DeployName, cfg *router.RouteCfg) error {
-	path := m.zkPathInfor.GetRoutePath(name)
+	path, err := m.zkPathInfor.GetRoutePath(name)
+	if err != nil {
+		return err
+	}
 	if path == "" {
 		return errors.Errorf("dont known zk path form %v", name)
 	}
@@ -244,7 +267,10 @@ func (m *manager) watch(ctx context.Context, ech chan<- zk.Event) error {
 }
 
 func (m *manager) parseZKData(typ zkTyp, path string, dat []byte) error {
-	name := m.zkPathInfor.GetDeployName(path)
+	name, err := m.zkPathInfor.GetDeployName(path)
+	if err != nil {
+		return err
+	}
 	if name == "" {
 		return errors.Errorf("zk sync: cannot recognize zk path: %v", path)
 	}
@@ -253,7 +279,6 @@ func (m *manager) parseZKData(typ zkTyp, path string, dat []byte) error {
 
 	s := router.ServiceNode{}
 	var rc *router.RouteCfg
-	var err error
 	if typ == zkInstance {
 		if err := json.Unmarshal(dat, &s); err != nil {
 			return err
@@ -284,7 +309,8 @@ func (m *manager) parseZKData(typ zkTyp, path string, dat []byte) error {
 func (m *manager) handlerFunc(ctx context.Context, env types.Stage) func(zk.Event) error {
 	return func(event zk.Event) error {
 		cli := m.zkClient
-		glog.V(10).Infof("zk: %v receiver event: %v", env, event)
+		//glog.V(10).Infof("zk: %v receiver event: %v", env, event)
+		fmt.Printf("zk: %v receiver event: %v\n", env, event)
 		if event.Err != nil {
 			glog.Errorf("zk: %v: %v", env, event.Err)
 		}
@@ -325,7 +351,11 @@ func (m *manager) handlerFunc(ctx context.Context, env types.Stage) func(zk.Even
 				}
 			}
 
-			name := m.zkPathInfor.GetDeployName(path)
+			name, err := m.zkPathInfor.GetDeployName(path)
+			if err != nil {
+				glog.Errorf("zk: %v delete etcdpath %v: %v", env, path, err)
+				return err
+			}
 
 			new := make([]router.ServiceNode, 0, len(l))
 			m.lock.Lock()
@@ -356,7 +386,7 @@ func (m *manager) handlerFunc(ctx context.Context, env types.Stage) func(zk.Even
 						m.parseZKData(zkInstance, s, data)
 					}
 
-					_, etcdPath, err := getEtcdPath(env, s)
+					_, etcdPath, err := m.zkPathInfor.GetEtcdPath(env, s)
 					if err != nil {
 						glog.Infof("zk: %v zkpath to etcdpath: %v, skip", env, s)
 						continue
@@ -374,7 +404,7 @@ func (m *manager) handlerFunc(ctx context.Context, env types.Stage) func(zk.Even
 				break
 			}
 
-			typ, etcdPath, err := getEtcdPath(env, path)
+			typ, etcdPath, err := m.zkPathInfor.GetEtcdPath(env, path)
 			if err != nil {
 				glog.Infof("zk: %v zkpath to etcdpath: %v, skip", env, path)
 				break
@@ -393,13 +423,17 @@ func (m *manager) handlerFunc(ctx context.Context, env types.Stage) func(zk.Even
 				glog.Errorf("zk: %v store data to etcd %v: %v", env, etcdPath, err)
 			}
 		case zk.EventNodeDeleted:
-			typ, etcdPath, err := getEtcdPath(env, path)
+			typ, etcdPath, err := m.zkPathInfor.GetEtcdPath(env, path)
 			if err != nil {
 				glog.Infof("zk: %v zkpath to etcdpath: %v, skip", env, path)
 				break
 			}
 
-			name := m.zkPathInfor.GetDeployName(path)
+			name, err := m.zkPathInfor.GetDeployName(path)
+			if err != nil {
+				glog.Infof("zk: %v zkpath to etcdpath: %v, skip", env, path)
+				break
+			}
 
 			m.lock.Lock()
 			if typ == zkRoute {

@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"time"
 
@@ -61,10 +62,45 @@ func (c *replicaCtrl) checkStatus() error {
 	}
 
 	if numUnexp > 0 && c.legacyTimer == nil {
-		return errors.Errorf("sched: %v legacy version instance is running but has not legacy task", numUnexp)
+		msg := fmt.Sprintf("sched: %v legacy version instance is running but has not legacy task", numUnexp)
+		err := c.removeLegacyInstanceConfigs()
+
+		if err != nil {
+			glog.Errorf("sched: remove legacy instance: %v", err)
+			err = errors.WithMessage(err, msg)
+		} else {
+			err = errors.New(msg)
+		}
+		return err
 	}
 
-	return nil
+	insMap := c.info.RunningInstance(c.key)
+
+	expVer := string(c.expectVersion)
+	for _, ins := range insMap {
+		if ins.Version == expVer {
+			numExp--
+		} else {
+			numUnexp--
+		}
+	}
+
+	var merr *multierror.Error
+
+	if numExp > 0 {
+		err := errors.Errorf("sched: there are %d instances with expected versino %v not running", numExp, expVer)
+		merr = multierror.Append(merr, err)
+	} else if numExp < 0 {
+		err := errors.Errorf("sched: there are %d instances with expected versino %v not running", numExp, expVer)
+		merr = multierror.Append(merr, err)
+	}
+
+	if numUnexp != 0 {
+		err := errors.New("sched: actual running instances differ with  expectation")
+		merr = multierror.Append(merr, err)
+	}
+
+	return merr.ErrorOrNil()
 }
 
 // start deploy a new project

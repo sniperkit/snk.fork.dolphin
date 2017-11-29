@@ -57,6 +57,15 @@ func nodeWalk(prefix string, c *Client, pathMatcher *regexp.Regexp,
 	}
 
 	if stat.NumChildren > 0 {
+		var d []byte
+		if !keysOnly {
+			b, _, err := c.client.Get(prefix)
+			if err != nil {
+				return err
+			}
+			d = b
+		}
+		vars[prefix] = d
 		for _, key := range l {
 			var s string
 			if strings.HasSuffix(prefix, "/") {

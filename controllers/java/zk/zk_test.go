@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/golang/glog"
+	"github.com/pkg/errors"
 	zk "github.com/samuel/go-zookeeper/zk"
+	"we.com/dolphin/types"
 )
 
 func Test_nodeWalk(t *testing.T) {
@@ -143,4 +146,25 @@ func TestMarshalByteArr(t *testing.T) {
 			t.Error(fmt.Errorf("abc != ret"))
 		}
 	}
+}
+
+func TestArray(t *testing.T) {
+	arr := []int{1, 2, 3}
+	t.Logf("%v", arr[3:])
+}
+
+func TestZKPATHv2(t *testing.T) {
+	var s = "crm-server"
+
+	parts := strings.Split("/service/com.crm/1_134", "/")
+
+	matches := binRe.FindStringSubmatch(parts[3])
+	if len(matches) == 0 {
+		err := errors.Errorf("zk: GetDeployName bin format error: %v", parts[3])
+		t.Errorf("%v", err)
+	}
+
+	t.Logf("%v", matches)
+	bin := strings.TrimSuffix(parts[3], matches[1])
+	t.Logf("%v", types.DeployName(s+":"+bin))
 }

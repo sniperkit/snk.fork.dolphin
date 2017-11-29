@@ -2,10 +2,13 @@ package scheduler
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
+	multierror "github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
+	"we.com/dolphin/controllers/alert"
 	ctypes "we.com/dolphin/controllers/types"
 	"we.com/dolphin/types"
 )
@@ -173,4 +176,68 @@ func (m *manager) deleteController(key types.DeployKey) (old *replicaCtrl) {
 	old = m.controllers[key]
 	delete(m.controllers, key)
 	return
+}
+
+func (m *manager) CheckStatus() error {
+	keys := m.info.ListDeploykeys()
+	keyMap := make(map[types.DeployKey]struct{}, len(keys))
+
+	for _, v := range keys {
+		keyMap[v] = struct{}{}
+	}
+
+	var unManagedKeys []string
+	m.lock.RLock()
+	for k := range keyMap {
+		if _, ok := m.controllers[k]; !ok {
+			unManagedKeys = append(unManagedKeys, string(k))
+			delete(keyMap, k)
+		}
+	}
+	m.lock.RUnlock()
+
+	var alerts []alert.Message
+	var merr *multierror.Error
+	for k := range keyMap {
+		c, _ := m.getController(k)
+		if c != nil {
+			if err := c.checkStatus(); err != nil {
+				pt, dn, _ := types.ParseDeployKey(k)
+				merr = multierror.Append(merr, err)
+				alerts = append(alerts, alert.Message{
+					Labels: map[string]string{
+						"env":       m.stage.String(),
+						"from":      "dolphin scheduler",
+						"deployKey": string(k),
+						"ptype":     string(pt),
+						"proj":      dn,
+					},
+					Annotations: map[string]string{
+						"msg": err.Error(),
+					},
+				})
+			}
+		}
+	}
+
+	if len(unManagedKeys) > 0 {
+		err := errors.Errorf("sched: there %v unmanaged deploy keys, have instances running: %v", len(unManagedKeys), strings.Join(unManagedKeys, ", "))
+
+		merr = multierror.Append(merr, err)
+		alerts = append(alerts, alert.Message{
+			Labels: map[string]string{
+				"env":  m.stage.String(),
+				"from": "dolphin scheduler",
+				"key":  "monitor",
+			},
+			Annotations: map[string]string{
+				"msg": err.Error(),
+			},
+		})
+	}
+
+	if len(alerts) > 0 {
+		go alert.SendAlerts(alerts...)
+	}
+	return merr.ErrorOrNil()
 }

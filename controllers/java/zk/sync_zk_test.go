@@ -1,7 +1,7 @@
 package zk
 
 import (
-	"encoding/json"
+	"flag"
 	"regexp"
 	"testing"
 	"time"
@@ -34,6 +34,9 @@ func Test_manager_ReloadData(t *testing.T) {
 }
 
 func Test_manager_start(t *testing.T) {
+	flag.Set("logtostderr", "true")
+	flag.Set("v", "15")
+	flag.Parse()
 	cfg := zkcfg.EnvConfig{
 		ENV:         types.Test,
 		ZKServers:   []string{"192.168.1.34:9090"},
@@ -57,23 +60,12 @@ func Test_manager_start(t *testing.T) {
 	}
 	generic.SetEtcdConfig(etcdcfg)
 
-	pi := simplePathInfo{
-		vers: map[types.DeployName]string{},
-	}
-	m, err := newManager(&cfg, &pi)
+	pi, _ := newSimplePathInfo()
+	m, err := newManager(&cfg, pi)
 	if err != nil {
 		t.Errorf("create manager: %v", err)
 	}
 
-	if err := m.start(); err != nil {
-		t.Errorf("start error: %v", err)
-	} else {
-		time.Sleep(1 * time.Minute)
-	}
-
-	rc, _ := json.MarshalIndent(m.routeCfg, "", "\t")
-	t.Logf("route config: %v", string(rc))
-
-	ins, _ := json.MarshalIndent(m.zkIns, "", "\t")
-	t.Logf("instance: %v", string(ins))
+	time.Sleep(120 * time.Second)
+	m.Destory()
 }
