@@ -1,10 +1,17 @@
+/*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
 package etcdkey
 
 /*
 	difference between:  info, config
 */
 
-import "we.com/dolphin/types"
+import (
+	"we.com/dolphin/types"
+)
 
 const (
 	hostKey    = "hosts/"

@@ -1,4 +1,9 @@
 /*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
+/*
 Package service
 	监控：
 		- java服务当前运行的实例数与配置是否相同

@@ -1,6 +1,13 @@
+/*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
 package scheduler
 
-import "errors"
+import (
+	"errors"
+)
 
 var (
 	ErrNoHostMeetCondition = errors.New("replica: cannot find host match condition")

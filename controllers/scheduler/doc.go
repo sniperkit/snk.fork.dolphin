@@ -1,4 +1,9 @@
 /*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
+/*
 	Package replica is used to schedual new deployment to pre-configed hosts
 
 	responbility:

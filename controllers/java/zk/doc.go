@@ -1,4 +1,9 @@
 /*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
+/*
 	zk 相关的一些操作
 
 	zkpath.go: 查询java服务的相关zk路径， 信息是从项目的配置文件上读取的

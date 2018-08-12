@@ -1,6 +1,13 @@
+/*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
 package scheduler
 
-import "time"
+import (
+	"time"
+)
 
 type option struct {
 	// maxtries time, when deploy a config  fails

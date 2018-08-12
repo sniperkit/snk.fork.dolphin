@@ -1,6 +1,13 @@
+/*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
 package types
 
-import "time"
+import (
+	"time"
+)
 
 // CommandType is a known command  type
 type CommandType string

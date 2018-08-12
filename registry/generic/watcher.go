@@ -1,3 +1,8 @@
+/*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
 package generic
 
 import (
@@ -8,7 +13,6 @@ import (
 
 	"github.com/coreos/etcd/clientv3"
 	etcdrpc "github.com/coreos/etcd/etcdserver/api/v3rpc/rpctypes"
-
 	log "github.com/golang/glog"
 	"we.com/dolphin/registry/watch"
 )

@@ -1,3 +1,8 @@
+/*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
 // Copyright © 2017 NAME HERE <EMAIL ADDRESS>
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,7 +19,9 @@
 
 package main
 
-import "we.com/dolphin/cmd/ctrl/cmd"
+import (
+	"we.com/dolphin/cmd/ctrl/cmd"
+)
 
 func main() {
 	cmd.Execute()

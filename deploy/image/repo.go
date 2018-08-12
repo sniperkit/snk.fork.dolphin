@@ -1,3 +1,8 @@
+/*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
 package image
 
 import (
@@ -15,7 +20,6 @@ import (
 	"gopkg.in/src-d/go-git.v4/config"
 	"gopkg.in/src-d/go-git.v4/plumbing"
 	wt "gopkg.in/src-d/go-git.v4/plumbing/format/worktree"
-
 	"we.com/dolphin/deploy/sync"
 	"we.com/dolphin/types"
 )

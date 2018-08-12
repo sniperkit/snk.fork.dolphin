@@ -1,6 +1,13 @@
+/*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
 package influx
 
-import "io"
+import (
+	"io"
+)
 
 type Client interface {
 	Query(command string) error

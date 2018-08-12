@@ -1,3 +1,8 @@
+/*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
 package watch
 
 // Interface can be implemented by anything that knows how to watch and report changes.

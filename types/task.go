@@ -1,6 +1,13 @@
+/*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
 package types
 
-import "time"
+import (
+	"time"
+)
 
 // Task is an schedualed  job
 type Task struct {

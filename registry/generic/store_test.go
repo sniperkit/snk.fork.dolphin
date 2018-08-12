@@ -1,4 +1,9 @@
 /*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
+/*
 Copyright 2016 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,12 +25,11 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/coreos/etcd/integration"
+	"golang.org/x/net/context"
 	"we.com/dolphin/types"
 	"we.com/jiabiao/common/fields"
 	"we.com/jiabiao/common/labels"
-
-	"github.com/coreos/etcd/integration"
-	"golang.org/x/net/context"
 )
 
 func TestCreate(t *testing.T) {

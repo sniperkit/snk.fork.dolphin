@@ -1,4 +1,9 @@
 /*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
+/*
 	Package deply是agent基于git worktree的发布新服务及更新旧的服务的包， 包含下面几个功能：
 		1. 发布，备份
 		2. 还原到一个旧的版本（ 与回滚不完全相同）， 还原是reset, 回滚是revert

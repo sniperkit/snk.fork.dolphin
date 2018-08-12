@@ -1,3 +1,8 @@
+/*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
 package zk
 
 import (
@@ -14,7 +19,6 @@ import (
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
 	"github.com/samuel/go-zookeeper/zk"
-
 	"we.com/dolphin/controllers/java/router"
 	zkcfg "we.com/dolphin/controllers/java/zk/types"
 	"we.com/dolphin/registry/generic"

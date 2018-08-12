@@ -1,3 +1,8 @@
+/*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
 package report
 
 import (
@@ -9,11 +14,10 @@ import (
 	"strings"
 	"time"
 
-	mytime "we.com/jiabiao/common/time"
-
 	"github.com/golang/glog"
 	"we.com/dolphin/report/influx"
 	"we.com/dolphin/report/metric"
+	mytime "we.com/jiabiao/common/time"
 )
 
 var (

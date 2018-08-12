@@ -1,4 +1,9 @@
 /*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
+/*
 Package ps:  主要agent在用， 主要用于
 	1. 监控主机上运行的进程， 并根据配置对进程的类型进行识别
 	2. 定时刷新进程列表, 可以理解为使用（ps axu）命令

@@ -1,3 +1,8 @@
+/*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
 package backends
 
 // The StoreClient interface is implemented by objects that can retrieve

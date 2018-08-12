@@ -1,8 +1,15 @@
+/*
+Sniperkit-Bot
+- Status: analyzed
+*/
+
 // +build !linux
 
 package ps
 
-import "we.com/dolphin/types"
+import (
+	"we.com/dolphin/types"
+)
 
 // ListenPortsOfPid listening port of pid  tcp/ipv4
 func ListenPortsOfPid(pid int) ([]types.Addr, error) {
